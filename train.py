@@ -24,7 +24,7 @@ parser.add_argument('--warmup_steps', default=10000, type=int, help='Number of w
 parser.add_argument('--decay_rate', default=0.5, type=float, help='Rate for the learning rate decay.')
 parser.add_argument('--decay_steps', default=100000, type=int, help='Number of steps for the learning rate decay.')
 parser.add_argument('--num_workers', default=4, type=int, help='number of workers for loading data')
-parser.add_argument('--num_epochs', default=1000, type=int, help='number of workers for loading data')
+parser.add_argument('--num_epochs', default=1000, type=int, help='number of training epochs.')
 
 opt = parser.parse_args()
 resolution = (128, 128)
