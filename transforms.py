@@ -50,7 +50,7 @@ def cont_6d_to_rmat(cont_6d):
     return torch.stack([x, y, z], dim=-1)
 
     
-def compute_transforms(self, transls: torch.Tensor, rots: torch.Tensor, ts: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
+def compute_transforms(transls: torch.Tensor, rots: torch.Tensor, ts: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
     """
     :param transls (K, B, 3)
     :param rots (K, B, 6)

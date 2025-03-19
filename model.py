@@ -38,9 +38,15 @@ class SlotAttention(nn.Module):
         mu = self.slots_mu.expand(b, n_s, -1)
         sigma = self.slots_sigma.expand(b, n_s, -1)
         slots = torch.normal(mu, sigma)
+        print(slots.shape)
+        print(slots[0][0])
 
-        inputs = self.norm_input(inputs)        
+        print(inputs[0][0])
+        inputs = self.norm_input(inputs)
+        print(inputs[0][0])
         k, v = self.to_k(inputs), self.to_v(inputs)
+        print('k: ',k[0][0])
+        print('v: ',v[0][0])
 
         for _ in range(self.iters):
             slots_prev = slots
@@ -107,7 +113,7 @@ class Encoder(nn.Module):
         x = F.relu(x)
         x = self.conv4(x)
         x = F.relu(x)
-        x = x.permute(0,2,3,1)
+        # x = x.permute(0,2,3,1)
         x = self.encoder_pos(x)
         x = torch.flatten(x, 1, 2)
         return x
@@ -126,7 +132,10 @@ class Decoder(nn.Module):
         self.resolution = resolution
 
     def forward(self, x):
-        x = self.decoder_pos(x)
+        print(x.shape)
+        # print(x[0][0])
+        # x = self.decoder_pos(x)
+        # print(x.shape)
         x = x.permute(0,3,1,2)
         x = self.conv1(x)
         x = F.relu(x)
@@ -183,30 +192,41 @@ class SlotAttentionAutoEncoder(nn.Module):
         # x = self.fc2(x)  # Feedforward network on set.
         # # `x` has shape: [batch_size, width*height, input_size].
 
-        # Inject encoded 4dgs
-        x = gs
+        # Inject encoded 4DGS.
+        # `x` has shape: [batch_size, num_gaussians, slot_size].
+        x = gs 
+        print(x[0][0])
+        # print('x',x.shape)
 
         # Slot Attention module.
         slots = self.slot_attention(x)
+        # print(slots[0][0])
+        # print('slots',slots.shape)
         # `slots` has shape: [batch_size, num_slots, slot_size].
 
         # """Broadcast slot features to a 2D grid and collapse slot dimension.""".
         slots = slots.reshape((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
         slots = slots.repeat((1, 8, 8, 1))
-        
+        # print(slots[0][0])
+        # print('slots',slots.shape)
         # `slots` has shape: [batch_size*num_slots, width_init, height_init, slot_size].
         x = self.decoder_cnn(slots)
         # `x` has shape: [batch_size*num_slots, width, height, num_channels+1].
+        # print('x',x.shape)
 
         # Undo combination of slot and batch dimension; split alpha masks.
         recons, masks = x.reshape(gs.shape[0], -1, x.shape[1], x.shape[2], x.shape[3]).split([3,1], dim=-1)
         # `recons` has shape: [batch_size, num_slots, width, height, num_channels].
         # `masks` has shape: [batch_size, num_slots, width, height, 1].
+        # print('recons',recons.shape)
+        # print('masks',masks.shape)
 
         # Normalize alpha masks over slots.
         masks = nn.Softmax(dim=1)(masks)
         recon_combined = torch.sum(recons * masks, dim=1)  # Recombine image.
-        recon_combined = recon_combined.permute(0,3,1,2)
+        # print('recon_combined',recon_combined.shape)
+        # recon_combined = recon_combined.permute(0,3,1,2)
         # `recon_combined` has shape: [batch_size, width, height, num_channels].
+        
 
         return recon_combined, recons, masks, slots

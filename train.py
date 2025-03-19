@@ -13,7 +13,8 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 parser = argparse.ArgumentParser()
 
 parser.add_argument
-parser.add_argument('--model_dir', default='./tmp/model10.ckpt', type=str, help='where to save models' )
+parser.add_argument('--data_dir', default='./data', type=str, help='where to find the dataset' )
+parser.add_argument('--output_dir', default='./tmp', type=str, help='where to save models' )
 parser.add_argument('--seed', default=0, type=int, help='random seed')
 parser.add_argument('--batch_size', default=16, type=int)
 parser.add_argument('--num_slots', default=7, type=int, help='Number of slots in Slot Attention.')
@@ -29,9 +30,10 @@ parser.add_argument('--num_epochs', default=1000, type=int, help='number of trai
 opt = parser.parse_args()
 resolution = (128, 128)
 
+# device = torch.device("cpu")
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-train_set = ShapeOfMotion()
+train_set = ShapeOfMotion(opt.data_dir, device)
 model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, 14).to(device)
 # model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim).to(device)
 # model.load_state_dict(torch.load('./tmp/model6.ckpt')['model_state_dict'])
@@ -67,8 +69,10 @@ for epoch in range(opt.num_epochs):
         
         gt_imgs = sample['gt_imgs'].to(device)
         fg_gs = sample['fg_gs'].to(device)
+
         recon_combined, recons, masks, slots = model(fg_gs)
         loss = criterion(recon_combined, gt_imgs)
+        print(loss.item())
         total_loss += loss.item()
 
         del recons, masks, slots
@@ -83,6 +87,7 @@ for epoch in range(opt.num_epochs):
         datetime.timedelta(seconds=time.time() - start)))
 
     if not epoch % 10:
+        os.makedirs(opt.output_dir, exist_ok=True)  # Creates directory if it doesn't exist
         torch.save({
             'model_state_dict': model.state_dict(),
-            }, opt.model_dir)
+            }, opt.output_dir + '/last.ckpt')
