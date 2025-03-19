@@ -13,7 +13,8 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 parser = argparse.ArgumentParser()
 
 parser.add_argument
-parser.add_argument('--model_dir', default='./tmp/model10.ckpt', type=str, help='where to save models' )
+parser.add_argument('--data_dir', default='./tmp/model10.ckpt', type=str, help='where to save models' )
+parser.add_argument('--output_dir', default='./tmp/model10.ckpt', type=str, help='where to save models' )
 parser.add_argument('--seed', default=0, type=int, help='random seed')
 parser.add_argument('--batch_size', default=16, type=int)
 parser.add_argument('--num_slots', default=7, type=int, help='Number of slots in Slot Attention.')
@@ -31,7 +32,7 @@ resolution = (128, 128)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-train_set = CLEVR('train')
+train_set = PARTNET(opt.data_dir,'train')
 model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim).to(device)
 # model.load_state_dict(torch.load('./tmp/model6.ckpt')['model_state_dict'])
 
@@ -83,4 +84,4 @@ for epoch in range(opt.num_epochs):
     if not epoch % 10:
         torch.save({
             'model_state_dict': model.state_dict(),
-            }, opt.model_dir)
+            }, opt.output_dir + '/last.ckpt')
