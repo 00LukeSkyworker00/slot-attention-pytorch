@@ -19,7 +19,7 @@ parser.add_argument('--seed', default=0, type=int, help='random seed')
 parser.add_argument('--batch_size', default=16, type=int)
 parser.add_argument('--num_slots', default=7, type=int, help='Number of slots in Slot Attention.')
 parser.add_argument('--num_iterations', default=3, type=int, help='Number of attention iterations.')
-parser.add_argument('--hid_dim', default=64, type=int, help='hidden dimension size')
+parser.add_argument('--hid_img_dim', default=64, type=int, help='hidden dimension size')
 parser.add_argument('--learning_rate', default=0.0004, type=float)
 parser.add_argument('--warmup_steps', default=10000, type=int, help='Number of warmup steps for the learning rate.')
 parser.add_argument('--decay_rate', default=0.5, type=float, help='Rate for the learning rate decay.')
@@ -30,10 +30,7 @@ parser.add_argument('--num_epochs', default=1000, type=int, help='number of trai
 opt = parser.parse_args()
 resolution = (128, 128)
 
-# device = torch.device("cpu")
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-train_set = ShapeOfMotion(opt.data_dir, device)
+train_set = ShapeOfMotion(opt.data_dir)
 model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, 14).to(device)
 # model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim).to(device)
 # model.load_state_dict(torch.load('./tmp/model6.ckpt')['model_state_dict'])
@@ -70,9 +67,9 @@ for epoch in range(opt.num_epochs):
         gt_imgs = sample['gt_imgs'].to(device)
         fg_gs = sample['fg_gs'].to(device)
 
-        recon_combined, recons, masks, slots = model(fg_gs)
+        recon_combined, recons, masks, slots = model(fg_gs, gt_imgs)
         loss = criterion(recon_combined, gt_imgs)
-        print(loss.item())
+        # print(loss.item())
         total_loss += loss.item()
 
         del recons, masks, slots

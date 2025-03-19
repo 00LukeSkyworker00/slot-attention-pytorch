@@ -38,15 +38,9 @@ class SlotAttention(nn.Module):
         mu = self.slots_mu.expand(b, n_s, -1)
         sigma = self.slots_sigma.expand(b, n_s, -1)
         slots = torch.normal(mu, sigma)
-        print(slots.shape)
-        print(slots[0][0])
 
-        print(inputs[0][0])
         inputs = self.norm_input(inputs)
-        print(inputs[0][0])
         k, v = self.to_k(inputs), self.to_v(inputs)
-        print('k: ',k[0][0])
-        print('v: ',v[0][0])
 
         for _ in range(self.iters):
             slots_prev = slots
@@ -105,6 +99,7 @@ class Encoder(nn.Module):
         self.encoder_pos = SoftPositionEmbed(hid_dim, resolution)
 
     def forward(self, x):
+        x = x.permute(0,3,1,2)
         x = self.conv1(x)
         x = F.relu(x)
         x = self.conv2(x)
@@ -113,7 +108,7 @@ class Encoder(nn.Module):
         x = F.relu(x)
         x = self.conv4(x)
         x = F.relu(x)
-        # x = x.permute(0,2,3,1)
+        x = x.permute(0,2,3,1)
         x = self.encoder_pos(x)
         x = torch.flatten(x, 1, 2)
         return x
@@ -132,10 +127,7 @@ class Decoder(nn.Module):
         self.resolution = resolution
 
     def forward(self, x):
-        print(x.shape)
-        # print(x[0][0])
-        # x = self.decoder_pos(x)
-        # print(x.shape)
+        x = self.decoder_pos(x)
         x = x.permute(0,3,1,2)
         x = self.conv1(x)
         x = F.relu(x)
@@ -181,21 +173,23 @@ class SlotAttentionAutoEncoder(nn.Module):
             eps = 1e-8, 
             hidden_dim = 128)
 
-    def forward(self, gs):
+    def forward(self, gs, img):
         # `image` has shape: [batch_size, num_channels, width, height].
 
-        # # Convolutional encoder with position embedding.
-        # x = self.encoder_cnn(image)  # CNN Backbone.
-        # x = nn.LayerNorm(x.shape[1:]).to(device)(x)
-        # x = self.fc1(x)
-        # x = F.relu(x)
-        # x = self.fc2(x)  # Feedforward network on set.
-        # # `x` has shape: [batch_size, width*height, input_size].
+        # Convolutional encoder with position embedding.
+        x = self.encoder_cnn(img)  # CNN Backbone.
+        x = nn.LayerNorm(x.shape[1:]).to(device)(x)
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)  # Feedforward network on set.
+        # `x` has shape: [batch_size, width*height, input_size].
+        # print('x',x.shape)
+        # print('gs',gs.shape)
 
         # Inject encoded 4DGS.
         # `x` has shape: [batch_size, num_gaussians, slot_size].
-        x = gs 
-        print(x[0][0])
+        x = torch.cat((gs,x), dim=1)
+        # print(x[0][0])
         # print('x',x.shape)
 
         # Slot Attention module.

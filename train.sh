@@ -17,5 +17,5 @@ for seq in ${evalset[@]}; do
     --num_slots 10 \
     --num_iterations 3 \
     --num_workers 0 \
-    --num_epochs 1
+    --num_epochs 1000
 done

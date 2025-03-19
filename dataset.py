@@ -40,9 +40,8 @@ from torch.utils.data.dataloader import default_collate
 #         return len(self.files)
 
 class ShapeOfMotion(Dataset):
-    def __init__(self, data_dir, device: torch.device, transform=None):        
+    def __init__(self, data_dir, transform=None):        
         self.data_dir = data_dir
-        self.device = device
         self.ckpt = torch.load(f"{data_dir}/checkpoints/last.ckpt") # If RAM OOM, could try dynamic load.
         self.img_dir = f"{data_dir}/images/"
         self.img_ext = os.path.splitext(os.listdir(self.img_dir)[0])[1]
@@ -85,7 +84,7 @@ class ShapeOfMotion(Dataset):
             means = means[:, 0]
             quats = quats[:, 0]
 
-        return torch.cat((means, quats, scales, opacities, colors), dim=1)
+        return torch.cat([self.min_max_norm(t) for t in (means, quats, scales, opacities, colors)], dim=1)
     
     def get_all_4dgs(self, ts: torch.Tensor) -> torch.Tensor:
         bg_gs = torch.cat(self.load_3dgs('bg'), dim=1)
@@ -110,13 +109,25 @@ class ShapeOfMotion(Dataset):
         opacities = self.ckpt["model"][f"{set}.params.opacities"][:, None]
         # print('opacities loaded', opacities.shape)
         colors = self.ckpt["model"][f"{set}.params.colors"]
+        colors = torch.nan_to_num(colors,nan=0.0, posinf=10, neginf=-1e1)
         return means, quats, scales, opacities, colors
+    
+    def load_3dgs_norm(self, set='fg') -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        norm_3dgs = ()
+        for tensor in self.load_3dgs(set):
+            norm_3dgs += self.min_max_norm(tensor)
+        return norm_3dgs
 
     def load_motion_base(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         transls = self.ckpt["model"]["motion_bases.params.transls"]
         rots = self.ckpt["model"]["motion_bases.params.rots"]
         coefs = self.ckpt["model"]["fg.params.motion_coefs"]
         return transls, rots, coefs
+    
+    def min_max_norm(self, tensor: torch.Tensor) -> torch.Tensor:
+        min_val = tensor.min(dim=0, keepdim=True)[0]
+        max_val = tensor.max(dim=0, keepdim=True)[0]
+        return (tensor - min_val) / (max_val - min_val + 1e-8)  # Avoid division by zero
     
     def __getitem__(self, index: int):
         data = {
