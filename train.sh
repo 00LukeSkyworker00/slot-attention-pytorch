@@ -2,10 +2,12 @@
 
 # List of folders
 evalset=(
-    movi_a_0004_anoMask
+    # movi_a_0004_anoMask
+    movi_a_single
 )
 
-DATA_DIR=/home/skyworker/result/4DGS_SlotAttention/shape_of_motion
+# DATA_DIR=/home/skyworker/result/4DGS_SlotAttention/shape_of_motion
+DATA_DIR=/home/skyworker/temp
 OUT_DIR=/home/skyworker/result/4DGS_SlotAttention/slot_4dgs
 
 # Batch run preprocess

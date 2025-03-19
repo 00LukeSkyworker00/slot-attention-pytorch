@@ -82,6 +82,7 @@ for epoch in range(opt.num_epochs):
         datetime.timedelta(seconds=time.time() - start)))
 
     if not epoch % 10:
+        os.makedirs(opt.output_dir, exist_ok=True)
         torch.save({
             'model_state_dict': model.state_dict(),
             }, opt.output_dir + '/last.ckpt')
