@@ -31,8 +31,9 @@ resolution = (128, 128)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-train_set = CLEVR('train')
-model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim).to(device)
+train_set = ShapeOfMotion()
+model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, 14).to(device)
+# model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim).to(device)
 # model.load_state_dict(torch.load('./tmp/model6.ckpt')['model_state_dict'])
 
 criterion = nn.MSELoss()
@@ -64,9 +65,10 @@ for epoch in range(opt.num_epochs):
 
         optimizer.param_groups[0]['lr'] = learning_rate
         
-        image = sample['image'].to(device)
-        recon_combined, recons, masks, slots = model(image)
-        loss = criterion(recon_combined, image)
+        gt_imgs = sample['gt_imgs'].to(device)
+        fg_gs = sample['fg_gs'].to(device)
+        recon_combined, recons, masks, slots = model(fg_gs)
+        loss = criterion(recon_combined, gt_imgs)
         total_loss += loss.item()
 
         del recons, masks, slots

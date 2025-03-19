@@ -172,16 +172,19 @@ class SlotAttentionAutoEncoder(nn.Module):
             eps = 1e-8, 
             hidden_dim = 128)
 
-    def forward(self, image):
+    def forward(self, gs):
         # `image` has shape: [batch_size, num_channels, width, height].
 
-        # Convolutional encoder with position embedding.
-        x = self.encoder_cnn(image)  # CNN Backbone.
-        x = nn.LayerNorm(x.shape[1:]).to(device)(x)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)  # Feedforward network on set.
-        # `x` has shape: [batch_size, width*height, input_size].
+        # # Convolutional encoder with position embedding.
+        # x = self.encoder_cnn(image)  # CNN Backbone.
+        # x = nn.LayerNorm(x.shape[1:]).to(device)(x)
+        # x = self.fc1(x)
+        # x = F.relu(x)
+        # x = self.fc2(x)  # Feedforward network on set.
+        # # `x` has shape: [batch_size, width*height, input_size].
+
+        # Inject encoded 4dgs
+        x = gs
 
         # Slot Attention module.
         slots = self.slot_attention(x)
@@ -196,7 +199,7 @@ class SlotAttentionAutoEncoder(nn.Module):
         # `x` has shape: [batch_size*num_slots, width, height, num_channels+1].
 
         # Undo combination of slot and batch dimension; split alpha masks.
-        recons, masks = x.reshape(image.shape[0], -1, x.shape[1], x.shape[2], x.shape[3]).split([3,1], dim=-1)
+        recons, masks = x.reshape(gs.shape[0], -1, x.shape[1], x.shape[2], x.shape[3]).split([3,1], dim=-1)
         # `recons` has shape: [batch_size, num_slots, width, height, num_channels].
         # `masks` has shape: [batch_size, num_slots, width, height, 1].
 
