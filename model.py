@@ -112,6 +112,28 @@ class Encoder(nn.Module):
         x = self.encoder_pos(x)
         x = torch.flatten(x, 1, 2)
         return x
+    
+class Gs_Encoder(nn.Module):
+    def __init__(self, hid_dim):
+        super().__init__()
+        self.conv1 = nn.Conv1d(14, hid_dim, 5, padding = 2)
+        self.conv2 = nn.Conv1d(hid_dim, hid_dim, 5, padding = 2)
+        self.conv3 = nn.Conv1d(hid_dim, hid_dim, 5, padding = 2)
+        self.conv4 = nn.Conv1d(hid_dim, hid_dim, 5, padding = 2)
+
+    def forward(self, x):
+        x = x.permute(0,2,1)
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = self.conv3(x)
+        x = F.relu(x)
+        x = self.conv4(x)
+        x = F.relu(x)
+        x = x.permute(0,2,1)
+        # x = torch.flatten(x, 1, 2)
+        return x
 
 class Decoder(nn.Module):
     def __init__(self, hid_dim, resolution):
@@ -161,6 +183,7 @@ class SlotAttentionAutoEncoder(nn.Module):
         self.num_iterations = num_iterations
 
         self.encoder_cnn = Encoder(self.resolution, self.hid_dim)
+        self.encoder_cnn_gs = Gs_Encoder(self.hid_dim)
         self.decoder_cnn = Decoder(self.hid_dim, self.resolution)
 
         self.fc1 = nn.Linear(hid_dim, hid_dim)
@@ -177,18 +200,20 @@ class SlotAttentionAutoEncoder(nn.Module):
         # `image` has shape: [batch_size, num_channels, width, height].
 
         # Convolutional encoder with position embedding.
-        x = self.encoder_cnn(img)  # CNN Backbone.
+        x = self.encoder_cnn_gs(gs)  # CNN Backbone.
         x = nn.LayerNorm(x.shape[1:]).to(device)(x)
+        # print('x',x.shape)
         x = self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x)  # Feedforward network on set.
+        # x = torch.cat((gs,x), dim=1)
         # `x` has shape: [batch_size, width*height, input_size].
         # print('x',x.shape)
         # print('gs',gs.shape)
 
         # Inject encoded 4DGS.
         # `x` has shape: [batch_size, num_gaussians, slot_size].
-        x = torch.cat((gs,x), dim=1)
+        # x = gs
         # print(x[0][0])
         # print('x',x.shape)
 
