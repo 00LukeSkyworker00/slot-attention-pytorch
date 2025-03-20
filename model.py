@@ -3,7 +3,7 @@ from torch import nn
 import torch
 import torch.nn.functional as F
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class SlotAttention(nn.Module):
     def __init__(self, num_slots, dim, iters = 3, eps = 1e-8, hidden_dim = 128):
@@ -71,7 +71,7 @@ def build_grid(resolution):
     grid = np.reshape(grid, [resolution[0], resolution[1], -1])
     grid = np.expand_dims(grid, axis=0)
     grid = grid.astype(np.float32)
-    return torch.from_numpy(np.concatenate([grid, 1.0 - grid], axis=-1)).to(device)
+    return torch.from_numpy(np.concatenate([grid, 1.0 - grid], axis=-1))
 
 """Adds soft positional embedding with learnable projection."""
 class SoftPositionEmbed(nn.Module):
@@ -86,7 +86,8 @@ class SoftPositionEmbed(nn.Module):
         self.grid = build_grid(resolution)
 
     def forward(self, inputs):
-        grid = self.embedding(self.grid)
+        device = inputs.device
+        grid = self.embedding(self.grid.to(device))
         return inputs + grid
 
 class Encoder(nn.Module):
@@ -115,11 +116,11 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, hid_dim, resolution):
         super().__init__()
-        self.conv1 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(2, 2), padding=2, output_padding=1).to(device)
-        self.conv2 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(2, 2), padding=2, output_padding=1).to(device)
-        self.conv3 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(2, 2), padding=2, output_padding=1).to(device)
-        self.conv4 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(2, 2), padding=2, output_padding=1).to(device)
-        self.conv5 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(1, 1), padding=2).to(device)
+        self.conv1 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(2, 2), padding=2, output_padding=1)
+        self.conv2 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(2, 2), padding=2, output_padding=1)
+        self.conv3 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(2, 2), padding=2, output_padding=1)
+        self.conv4 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(2, 2), padding=2, output_padding=1)
+        self.conv5 = nn.ConvTranspose2d(hid_dim, hid_dim, 5, stride=(1, 1), padding=2)
         self.conv6 = nn.ConvTranspose2d(hid_dim, 4, 3, stride=(1, 1), padding=1)
         self.decoder_initial_size = (8, 8)
         self.decoder_pos = SoftPositionEmbed(hid_dim, self.decoder_initial_size)
@@ -175,16 +176,16 @@ class SlotAttentionAutoEncoder(nn.Module):
     def forward(self, image):
         # `image` has shape: [batch_size, num_channels, width, height].
 
-        print(image[0][0])
+        # print(image[0][0])
         # Convolutional encoder with position embedding.
         x = self.encoder_cnn(image)  # CNN Backbone.
-        x = nn.LayerNorm(x.shape[1:]).to(device)(x)
+        x = nn.LayerNorm(x.shape[1:]).to(image.device)(x)
         x = self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x)  # Feedforward network on set.
         # `x` has shape: [batch_size, width*height, input_size].
 
-        print(x[0][0])
+        # print(x[0][0])
 
         # Slot Attention module.
         slots = self.slot_attention(x)
