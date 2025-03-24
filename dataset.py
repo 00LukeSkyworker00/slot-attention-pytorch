@@ -67,12 +67,12 @@ class ShapeOfMotion(Dataset):
 
         if ts is not None:
             transfms = self.get_transforms(ts)  # (G, B, 3, 4)
-            means = torch.einsum(
+            means_ts = torch.einsum(
                 "pnij,pj->pni",
                 transfms,
                 F.pad(means, (0, 1), value=1.0),
             ) # (G, B, 3)
-            quats = roma.quat_xyzw_to_wxyz(
+            quats_ts = roma.quat_xyzw_to_wxyz(
                 (
                     roma.quat_product(
                         roma.rotmat_to_unitquat(transfms[..., :3, :3]),
@@ -80,11 +80,11 @@ class ShapeOfMotion(Dataset):
                     )
                 )
             )
-            quats = F.normalize(quats, p=2, dim=-1) # (G, B, 4)
-            means = means[:, 0]
-            quats = quats[:, 0]
+            quats_ts = F.normalize(quats_ts, p=2, dim=-1) # (G, B, 4)
+            means_ts = means_ts[:, 0]
+            quats_ts = quats_ts[:, 0]
 
-        return torch.cat([self.min_max_norm(t) for t in (means, quats, scales, opacities, colors)], dim=1)
+        return torch.cat([self.min_max_norm(t) for t in (means, means_ts, quats, quats_ts, scales, opacities, colors)], dim=1)
     
     def get_all_4dgs(self, ts: torch.Tensor) -> torch.Tensor:
         bg_gs = torch.cat(self.load_3dgs('bg'), dim=1)
@@ -110,7 +110,10 @@ class ShapeOfMotion(Dataset):
         # print('opacities loaded', opacities.shape)
         colors = self.ckpt["model"][f"{set}.params.colors"]
         colors = torch.nan_to_num(colors,nan=0.0, posinf=10, neginf=-1e1)
-        return means, quats, scales, opacities, colors
+        if set == 'bg':
+            return means, quats, means, quats, scales, opacities, colors
+        else :
+            return means, quats, scales, opacities, colors
     
     def load_3dgs_norm(self, set='fg') -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         norm_3dgs = ()
@@ -132,7 +135,7 @@ class ShapeOfMotion(Dataset):
     def __getitem__(self, index: int):
         data = {
             # ().
-            "frame_names": self.frame_names[index],
+            # "frame_names": self.frame_names[index],
             # (H, W, 3).
             "gt_imgs": self.get_image(index),
             # (G, 14).
@@ -142,3 +145,44 @@ class ShapeOfMotion(Dataset):
         }
 
         return data
+    
+
+def collate_fn_padd(batch):
+    """
+    Pads batch of variable-length sequences and returns:
+    - batch_fg: Padded tensor of shape (batch_size, max_G, 14) for fg_gs
+    - batch_all: Padded tensor of shape (batch_size, max_G, 14) for all_gs
+    - gt_imgs: A list of original images (not padded)
+    - lengths_fg: Tensor containing original sequence lengths for fg_gs
+    - lengths_all: Tensor containing original sequence lengths for all_gs
+    - mask_fg: Boolean mask for valid elements in fg_gs
+    - mask_all: Boolean mask for valid elements in all_gs
+    """
+    
+    # Extract fg_gs, all_gs, and gt_imgs
+    fg_gs = [torch.tensor(t['fg_gs'], dtype=torch.float32) for t in batch]
+    all_gs = [torch.tensor(t['all_gs'], dtype=torch.float32) for t in batch]
+    gt_imgs = [torch.tensor(t['gt_imgs'], dtype=torch.float32) for t in batch]  # Keep gt_imgs as is (no padding)
+    gt_imgs = torch.stack(gt_imgs)
+
+    # Get original lengths
+    lengths_fg = torch.tensor([t.shape[0] for t in fg_gs], dtype=torch.int64)
+    lengths_all = torch.tensor([t.shape[0] for t in all_gs], dtype=torch.int64)
+
+    # Pad sequences along the first dimension (G)
+    batch_fg = torch.nn.utils.rnn.pad_sequence(fg_gs, batch_first=True, padding_value=0.0)
+    batch_all = torch.nn.utils.rnn.pad_sequence(all_gs, batch_first=True, padding_value=0.0)
+
+    out = {
+        "gt_imgs": gt_imgs,
+        "fg_gs": batch_fg,
+        "all_gs": batch_all,
+        "fg_lengths": lengths_fg,
+        "all_lengths": lengths_all,
+    }
+
+    # # Compute mask (True for valid values, False for padding)
+    # mask_fg = (batch_fg != 0).any(dim=-1)
+    # mask_all = (batch_all != 0).any(dim=-1)
+
+    return out
