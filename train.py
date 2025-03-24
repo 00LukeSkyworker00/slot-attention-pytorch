@@ -29,9 +29,17 @@ def Trainer(rank, world_size, opt):
     init_process_group(backend='nccl', rank=rank, world_size=world_size)
 
     # Load dataset
-    resolution = (128, 128)    
-    train_set = PARTNET(opt.data_dir,'train')
+    resolution = (128, 128)
 
+    train_set = []
+    for file in os.listdir(opt.data_dir):
+        set = MegaSaM(os.path.join(opt.data_dir, file),'train')
+        train_set.append(set)
+        print(file)
+    
+    train_set = torch.utils.data.ConcatDataset(train_set)
+    print(len(train_set))
+    
     model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim)
     model = model.to(device)
     # model.load_state_dict(torch.load('./tmp/model6.ckpt')['model_state_dict'])
@@ -67,7 +75,6 @@ def Trainer(rank, world_size, opt):
     train_dataloader = torch.utils.data.DataLoader(train_set, batch_size=opt.batch_size,
                         shuffle=False, num_workers=opt.num_workers, sampler=train_sampler)
 
-
     start = time.time()
     i = start_epoch * len(train_dataloader)  # Resume step count
 
@@ -90,6 +97,7 @@ def Trainer(rank, world_size, opt):
             optimizer.param_groups[0]['lr'] = learning_rate
             
             image = sample['image'].to(device)
+
             recon_combined, recons, masks, slots = model(image)
             loss = criterion(recon_combined, image)
             total_loss += loss.item()
@@ -106,7 +114,7 @@ def Trainer(rank, world_size, opt):
             print ("Epoch: {}, Loss: {}, Time: {}".format(epoch, total_loss,
                 datetime.timedelta(seconds=time.time() - start)))
 
-            if not epoch % 10:
+            if not epoch % 100:
                 os.makedirs(opt.output_dir, exist_ok=True)
 
 
