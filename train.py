@@ -7,11 +7,13 @@ import time
 import datetime
 import torch.optim as optim
 import torch
+import math
 
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
+from torch.utils.tensorboard import SummaryWriter
 
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -24,6 +26,10 @@ def Trainer(rank, world_size, opt):
     torch.cuda.set_device(rank)
     device = torch.device(f"cuda:{rank}")
     print(rank, device)
+
+    # Setup tensorboard
+    if rank == 0:
+        writer = SummaryWriter(f'./logs/{opt.output_dir + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}')
     
     # Initialize process group for DDP
     init_process_group(backend='nccl', rank=rank, world_size=world_size)
@@ -35,11 +41,6 @@ def Trainer(rank, world_size, opt):
     model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim)
     model = model.to(device)
     # model.load_state_dict(torch.load('./tmp/model6.ckpt')['model_state_dict'])
-
-    # print(rank, model.encoder_cnn.encoder_pos.grid.device)
-    # print(rank, model.encoder_cnn.conv1.weight.device)
-    # print(rank, model.decoder_cnn.conv6.weight.device)
-    # print(rank, model.slot_attention.slots_mu.device)
 
     # Wrap model in DDP
     model = DDP(model, device_ids=[rank])
@@ -84,8 +85,10 @@ def Trainer(rank, world_size, opt):
             else:
                 learning_rate = opt.learning_rate
 
-            learning_rate = learning_rate * (opt.decay_rate ** (
-                i / opt.decay_steps))
+            learning_rate = learning_rate * (opt.decay_rate ** (i / opt.decay_steps))
+                        
+            # Scale learning rate by world size
+            learning_rate *= world_size ** 0.5
 
             optimizer.param_groups[0]['lr'] = learning_rate
             
@@ -105,6 +108,8 @@ def Trainer(rank, world_size, opt):
         if rank == 0:   # Print and save only from rank 0
             print ("Epoch: {}, Loss: {}, Time: {}".format(epoch, total_loss,
                 datetime.timedelta(seconds=time.time() - start)))
+            
+            writer.add_scalar('Loss/train', total_loss, epoch)
 
             if not epoch % 10:
                 os.makedirs(opt.output_dir, exist_ok=True)
@@ -150,8 +155,10 @@ def main():
     # Set random seed for reproducibility
     torch.manual_seed(opt.seed)
 
-    # Spawn processes for DDP
+    # Number of GPUs available
     world_size = torch.cuda.device_count()
+
+    # Spawn processes for DDP
     mp.spawn(Trainer, args=(world_size, opt), nprocs=world_size, join=True)
 
 
