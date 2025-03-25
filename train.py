@@ -93,6 +93,8 @@ def Trainer(rank, world_size, opt):
 
             learning_rate = learning_rate * (opt.decay_rate ** (
                 i / opt.decay_steps))
+            
+            learning_rate *= world_size ** 0.5  # Scale by number of GPUs
 
             optimizer.param_groups[0]['lr'] = learning_rate
             
