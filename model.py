@@ -116,7 +116,7 @@ class Encoder(nn.Module):
 class Gs_Encoder(nn.Module):
     def __init__(self, hid_dim):
         super().__init__()
-        self.conv1 = nn.Conv1d(14, hid_dim, 5, padding = 2)
+        self.conv1 = nn.Conv1d(26, hid_dim, 5, padding = 2)
         self.conv2 = nn.Conv1d(hid_dim, hid_dim, 5, padding = 2)
         self.conv3 = nn.Conv1d(hid_dim, hid_dim, 5, padding = 2)
         self.conv4 = nn.Conv1d(hid_dim, hid_dim, 5, padding = 2)
@@ -201,6 +201,49 @@ class Gs_Decoder(nn.Module):
         x = x[:,:,:self.resolution[0], :self.resolution[1]]
         x = x.permute(0,2,3,1)
         return x
+    
+class Gs_Slot_Broadcast(nn.Module):
+    def __init__(self, num_slots, slot_size, grid_size=8):
+        super(Gs_Slot_Broadcast, self).__init__()
+        self.num_slots = num_slots
+        self.slot_size = slot_size
+        self.grid_size = grid_size
+        
+        # Learnable projection for each slot to predict soft assignment over the grid
+        self.projection_mlp = nn.Sequential(
+            nn.Linear(slot_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, grid_size ** 2)  # Predicts soft assignments for each grid point
+        )
+        
+        # Optional feature transformation to adjust slot features before broadcasting
+        self.feature_transform = nn.Linear(slot_size, slot_size)
+
+    def forward(self, slots):
+        """
+        slots: [B, N, D]  ->  Returns: [B, N, 8, 8, D]
+        """
+        batch_size = slots.size(0)
+        
+        # Transform the slot features before broadcasting
+        transformed_slots = self.feature_transform(slots)  # Shape: [B, N, D]
+        
+        # Predict the soft assignment for each slot across the grid
+        soft_assignments = self.projection_mlp(transformed_slots)  # Shape: [B, N, 8*8]
+        
+        # Reshape to [B, N, 8, 8] for the grid assignments
+        soft_assignments = soft_assignments.view(batch_size, self.num_slots, self.grid_size, self.grid_size)
+        
+        # Apply softmax normalization along the spatial dimensions
+        soft_assignments = F.softmax(soft_assignments, dim=-1)  # Normalize across grid positions (8*8)
+        
+        # Broadcast the slot features across the grid
+        grid_features = torch.einsum("bnwh, bnd -> bnwhd", soft_assignments, transformed_slots)
+        
+        # Flatten B and N into a single dimension
+        grid_features = grid_features.view(batch_size * self.num_slots, self.grid_size, self.grid_size, self.slot_size)
+
+        return grid_features  # [B, N, 8, 8, D]
 
 """Slot Attention-based auto-encoder for object discovery."""
 class SlotAttentionAutoEncoder(nn.Module):
@@ -230,6 +273,8 @@ class SlotAttentionAutoEncoder(nn.Module):
             iters = self.num_iterations,
             eps = 1e-8, 
             hidden_dim = 128)
+        
+        self.slot_broadcast = Gs_Slot_Broadcast(num_slots, hid_dim, 8)
 
     def forward(self, gs, img):
         # `image` has shape: [batch_size, num_channels, width, height].
@@ -237,52 +282,38 @@ class SlotAttentionAutoEncoder(nn.Module):
         # Convolutional encoder with position embedding.
         # x = self.encoder_cnn_gs(gs)  # CNN Backbone.
         # x = nn.LayerNorm(x.shape[1:]).to(img.device)(x)
-        # # print('x',x.shape)
         # x = self.fc1(x)
         # x = F.relu(x)
         # x = self.fc2(x)  # Feedforward network on set.
-        # x = torch.cat((gs,x), dim=1)
-        # `x` has shape: [batch_size, width*height, input_size].
-        # print('x',x.shape)
-        # print('gs',gs.shape)
+        # `x` has shape: [batch_size, num_gaussians, input_size].
 
         # Inject encoded 4DGS.
-        # `x` has shape: [batch_size, num_gaussians, slot_size].
         x = gs
-        # print(x[0][0])
-        # print('x',x.shape)
+        # `x` has shape: [batch_size, num_gaussians, slot_size].
 
         # Slot Attention module.
         slots = self.slot_attention(x)
-        # print(slots[0][0])
-        # print('slots',slots.shape)
         # `slots` has shape: [batch_size, num_slots, slot_size].
 
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)  # Feedforward network on set.
-
         """Broadcast slot features to a 2D grid and collapse slot dimension."""
-        slots = slots.reshape((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
-        slots = slots.repeat((1, 8, 8, 1))
-        # print(slots[0][0])
-        # print('slots',slots.shape)
+        slots = self.slot_broadcast(slots)
+
+        # slots = slots.reshape((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
+        # slots = slots.repeat((1, 8, 8, 1))
         # `slots` has shape: [batch_size*num_slots, width_init, height_init, slot_size].
+
+
         x = self.decoder_cnn(slots)
         # `x` has shape: [batch_size*num_slots, width, height, num_channels+1].
-        # print('x',x.shape)
 
         # Undo combination of slot and batch dimension; split alpha masks.
         recons, masks = x.reshape(gs.shape[0], -1, x.shape[1], x.shape[2], x.shape[3]).split([3,1], dim=-1)
         # `recons` has shape: [batch_size, num_slots, width, height, num_channels].
         # `masks` has shape: [batch_size, num_slots, width, height, 1].
-        # print('recons',recons.shape)
-        # print('masks',masks.shape)
 
         # Normalize alpha masks over slots.
         masks = nn.Softmax(dim=1)(masks)
         recon_combined = torch.sum(recons * masks, dim=1)  # Recombine image.
-        # print('recon_combined',recon_combined.shape)
         # recon_combined = recon_combined.permute(0,3,1,2)
         # `recon_combined` has shape: [batch_size, width, height, num_channels].
         

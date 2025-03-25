@@ -14,6 +14,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.utils.rnn import pack_padded_sequence
+from torch.utils.tensorboard import SummaryWriter
 
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -21,6 +22,9 @@ def Trainer(rank, world_size, opt):
 
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355"
+
+    # Setup tensorboard
+    writer = SummaryWriter(f'./logs/{opt.output_dir}_{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}')
 
     # Set device for each process
     torch.cuda.set_device(rank)
@@ -33,16 +37,17 @@ def Trainer(rank, world_size, opt):
 
     train_list = []
 
-    for i in range(10, 51):
+    for i in range(11, 51):
         train_set = ShapeOfMotion(os.path.join(opt.data_dir,f'movi_a_00{i}_anoMask'))
         train_list.append(train_set)
         # print(train_set[0]['fg_gs'].shape)
     
     train_set = ConcatDataset(train_list)
     # train_set = ShapeOfMotion(opt.data_dir)
+    print(f"Number of scene in concat dataset: {len(train_set)}")
 
-    model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, 21)
-    # model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim).to(device)
+    model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, 26)
+    # model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim)
     # model.load_state_dict(torch.load('./tmp/model6.ckpt')['model_state_dict'])
     model = model.to(device)
 
@@ -78,73 +83,80 @@ def Trainer(rank, world_size, opt):
     start = time.time()
     i = start_epoch * len(train_dataloader)  # Resume step count
 
-    for epoch in range(start_epoch, opt.num_epochs):  # Resume from the saved epoch
-        model.train()
+    try:
+        for epoch in range(start_epoch, opt.num_epochs):  # Resume from the saved epoch
+            model.train()
 
-        total_loss = 0
+            total_loss = 0
 
-        for sample in tqdm(train_dataloader):
-            i += 1
+            for sample in tqdm(train_dataloader):
+                i += 1
 
-            if i < opt.warmup_steps:
-                learning_rate = opt.learning_rate * (i / opt.warmup_steps)
-            else:
-                learning_rate = opt.learning_rate
+                if i < opt.warmup_steps:
+                    learning_rate = opt.learning_rate * (i / opt.warmup_steps)
+                else:
+                    learning_rate = opt.learning_rate
 
-            learning_rate = learning_rate * (opt.decay_rate ** (
-                i / opt.decay_steps))
+                learning_rate = learning_rate * (opt.decay_rate ** (
+                    i / opt.decay_steps))
+                
+                learning_rate *= world_size ** 0.5  # Scale by number of GPUs
 
-            optimizer.param_groups[0]['lr'] = learning_rate
-            
-            # print(sample['gt_imgs'].shape)
+                optimizer.param_groups[0]['lr'] = learning_rate
+                
+                # print(sample['gt_imgs'].shape)
 
-            # Get inputs and lengths
-            gt_imgs = sample['gt_imgs'].to(device)
-            fg_gs = sample['fg_gs'].to(device)
-            # lengths = sample['fg_lengths']  # Sequence lengths
+                # Get inputs and lengths
+                gt_imgs = sample['gt_imgs'].to(device)
+                all_gs = sample['all_gs'].to(device)
 
-            # Pack the sequence
-            # packed_fg_gs = pack_padded_sequence(fg_gs, lengths, batch_first=True, enforce_sorted=False)
+                # Forward pass through model
+                recon_combined, recons, masks, slots = model(all_gs, gt_imgs)
+                
+                # Loss calculation
+                loss = criterion(recon_combined, gt_imgs)
+                # print(loss.item())
+                total_loss += loss.item()
 
-            # Forward pass through model
-            recon_combined, recons, masks, slots = model(fg_gs, gt_imgs)
-            
-            # Loss calculation
-            loss = criterion(recon_combined, gt_imgs)
-            # print(loss.item())
-            total_loss += loss.item()
+                del recons, masks, slots
 
-            del recons, masks, slots
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            total_loss /= len(train_dataloader)
 
-        total_loss /= len(train_dataloader)
+            print ("Epoch: {}, Loss: {}, Time: {}".format(epoch, total_loss,
+                datetime.timedelta(seconds=time.time() - start)))
 
-        print ("Epoch: {}, Loss: {}, Time: {}".format(epoch, total_loss,
-            datetime.timedelta(seconds=time.time() - start)))
+            if rank == 0:   # Print and save only from rank 0
+                print ("Epoch: {}, Loss: {}, Time: {}".format(epoch, total_loss,
+                    datetime.timedelta(seconds=time.time() - start)))
+                
+                writer.add_scalar('Loss/train', total_loss, epoch)
 
-        if rank == 0:  # Only rank 0 saves checkpoints
-            print(f"Epoch: {epoch}, Loss: {total_loss}, Time: {datetime.timedelta(seconds=time.time() - start)}")
+                if not epoch % 10:
+                    os.makedirs(opt.output_dir, exist_ok=True)
 
-            if epoch % 100 == 0:
-                os.makedirs(opt.output_dir, exist_ok=True)
+                    torch.save({
+                        'epoch': epoch,  # Save the current epoch
+                        'model_state_dict': model.module.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                    }, os.path.join(opt.output_dir, f'{epoch}.ckpt'))
 
-                torch.save({
-                    'epoch': epoch,  # Save the current epoch
-                    'model_state_dict': model.module.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                }, os.path.join(opt.output_dir, f'{epoch}.ckpt'))
+                    torch.save({
+                        'epoch': epoch,  # Save the last epoch for resuming
+                        'model_state_dict': model.module.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                    }, checkpoint_path)
 
-                torch.save({
-                    'epoch': epoch,  # Save the last epoch for resuming
-                    'model_state_dict': model.module.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                }, checkpoint_path)
-
-    # Clean up process group
-    destroy_process_group()
+                    print ("Save checkpoint at Epoch: {}, Loss: {}, Time: {}".format(epoch, total_loss,
+                    datetime.timedelta(seconds=time.time() - start)))
+    except KeyboardInterrupt:
+        print(f"Process {rank} interrupted.")
+    finally:
+        destroy_process_group()
+        print(f"Process {rank} cleaned up.")
         
 def main():
     parser = argparse.ArgumentParser()
