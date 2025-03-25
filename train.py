@@ -109,7 +109,6 @@ def Trainer(rank, world_size, opt):
             if not epoch % 10:
                 os.makedirs(opt.output_dir, exist_ok=True)
 
-
                 torch.save({
                     'epoch': epoch,  # Save the current epoch
                     'model_state_dict': model.module.state_dict(),
@@ -121,6 +120,9 @@ def Trainer(rank, world_size, opt):
                     'model_state_dict': model.module.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                 }, checkpoint_path)
+
+                print ("Save checkpoint at Epoch: {}, Loss: {}, Time: {}".format(epoch, total_loss,
+                datetime.timedelta(seconds=time.time() - start)))
             
     # Clean up the process group after training
     destroy_process_group()
