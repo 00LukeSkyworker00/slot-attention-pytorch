@@ -40,13 +40,14 @@ from torch.utils.data.dataloader import default_collate
 #         return len(self.files)
 
 class ShapeOfMotion(Dataset):
-    def __init__(self, data_dir, transform=None):        
+    def __init__(self, data_dir, num_slot,transform=None):        
         self.data_dir = data_dir
         self.ckpt = torch.load(f"{data_dir}/checkpoints/last.ckpt") # If RAM OOM, could try dynamic load.
         self.img_dir = f"{data_dir}/images/"
         self.img_ext = os.path.splitext(os.listdir(self.img_dir)[0])[1]
         self.frame_names = [os.path.splitext(p)[0] for p in sorted(os.listdir(self.img_dir))]
         self.imgs: list[torch.Tensor | None] = [None for _ in self.frame_names]
+        self.num_slot = num_slot
         self.transform = transform
 
     @property
@@ -162,18 +163,49 @@ class ShapeOfMotion(Dataset):
         max_val = tensor.max()
         return (tensor - min_val) / (max_val - min_val + 1e-8)  # Avoid division by zero
     
+    def kmeans(self, x, k, num_iterations=10):
+        # x: input tensor of shape [num_gaussians, features]
+        # k: number of clusters (slots)
+        # num_iterations: number of iterations for convergence
+        
+        num_points, num_features = x.shape
+        
+        # Initialize centroids randomly by choosing k random points from x
+        centroids = x[torch.randperm(num_points)[:k]]
+        
+        for _ in range(num_iterations):
+            # Step 1: Compute the distances from each point to each centroid
+            distances = torch.cdist(x, centroids)
+            
+            # Step 2: Assign each point to the nearest centroid (min distance)
+            assignments = torch.argmin(distances, dim=1)
+            
+            # Step 3: Update centroids by computing the mean of the assigned points
+            for i in range(k):
+                centroids[i] = x[assignments == i].mean(dim=0)
+        
+        # Return the final centroids (slots) and the assignments (cluster memberships)
+        return torch.tensor(centroids, device=x[0].device)
+    
     def __getitem__(self, index: int):
+
+        fg_gs = self.get_fg_4dgs(torch.tensor([index]))
+        all_gs = self.get_all_4dgs(torch.tensor([index]))
+
         data = {
             # ().
             # "frame_names": self.frame_names[index],
             # (H, W, 3).
             "gt_imgs": self.get_image(index),
             # (G, 14).
-            "fg_gs": self.get_fg_4dgs_tfm(torch.tensor([index])),
-            # # (G, 14).
-            "all_gs": self.get_all_4dgs_tfm(torch.tensor([index]))
+            "fg_gs": fg_gs,
+            # (G, 14).
+            "all_gs": all_gs,
+            # (Num_slots, 14).
+            "fg_kmeans": self.kmeans(fg_gs, self.num_slot),
+            # (Num_slots, 14).
+            "all_kmeans": self.kmeans(all_gs, self.num_slot),
         }
-
         return data
     
 
@@ -187,13 +219,17 @@ def collate_fn_padd(batch):
     - lengths_all: Tensor containing original sequence lengths for all_gs
     - mask_fg: Boolean mask for valid elements in fg_gs
     - mask_all: Boolean mask for valid elements in all_gs
-    """
+    """    
+    gt_imgs = [torch.tensor(t['gt_imgs'], dtype=torch.float32) for t in batch]  # Keep gt_imgs as is (no padding)
+    gt_imgs = torch.stack(gt_imgs)
+    fg_kmeans = [torch.tensor(t['fg_kmeans'], dtype=torch.float32) for t in batch]
+    fg_kmeans = torch.stack(fg_kmeans)
+    all_kmeans = [torch.tensor(t['all_kmeans'], dtype=torch.float32) for t in batch]
+    all_kmeans = torch.stack(all_kmeans)
     
     # Extract fg_gs, all_gs, and gt_imgs
     fg_gs = [torch.tensor(t['fg_gs'], dtype=torch.float32) for t in batch]
     all_gs = [torch.tensor(t['all_gs'], dtype=torch.float32) for t in batch]
-    gt_imgs = [torch.tensor(t['gt_imgs'], dtype=torch.float32) for t in batch]  # Keep gt_imgs as is (no padding)
-    gt_imgs = torch.stack(gt_imgs)
 
     # Pad sequences along the first dimension (G)
     batch_fg = torch.nn.utils.rnn.pad_sequence(fg_gs, batch_first=True, padding_value=0.0)
@@ -207,6 +243,8 @@ def collate_fn_padd(batch):
         "gt_imgs": gt_imgs,
         "fg_gs": batch_fg,
         "all_gs": batch_all,
+        "fg_kmeans": fg_kmeans,
+        "all_kmeans": all_kmeans,
     }
 
     return out

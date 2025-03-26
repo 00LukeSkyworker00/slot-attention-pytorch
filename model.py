@@ -13,54 +13,61 @@ class SlotAttention(nn.Module):
         self.eps = eps
         self.scale = dim ** -0.5
 
-        self.slots_mu = nn.Parameter(torch.randn(1, 1, dim))
-        self.slots_sigma = nn.Parameter(torch.rand(1, 1, dim))
+        # self.slots_mu = nn.Parameter(torch.randn(1, 1, dim))
+        # self.slots_sigma = nn.Parameter(torch.rand(1, 1, dim))
 
-        self.to_q = nn.Linear(dim, dim)
-        self.to_k = nn.Linear(dim, dim)
-        self.to_v = nn.Linear(dim, dim)
+        # self.to_q = nn.Linear(dim, dim)
+        # self.to_k = nn.Linear(dim, dim)
+        # self.to_v = nn.Linear(dim, dim)
 
-        self.gru = nn.GRUCell(dim, dim)
+        # self.gru = nn.GRUCell(dim, dim)
 
-        hidden_dim = max(dim, hidden_dim)
+        # hidden_dim = max(dim, hidden_dim)
 
-        self.fc1 = nn.Linear(dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, dim)
+        # self.fc1 = nn.Linear(dim, hidden_dim)
+        # self.fc2 = nn.Linear(hidden_dim, dim)
 
-        self.norm_input  = nn.LayerNorm(dim)
-        self.norm_slots  = nn.LayerNorm(dim)
-        self.norm_pre_ff = nn.LayerNorm(dim)
+        # self.norm_input  = nn.LayerNorm(dim)
+        # self.norm_slots  = nn.LayerNorm(dim, eps=1e-6)
+        # self.norm_pre_ff = nn.LayerNorm(dim)
 
-    def forward(self, inputs, num_slots = None):
+    def forward(self, inputs, slots, num_slots = None):
         b, n, d = inputs.shape
-        n_s = num_slots if num_slots is not None else self.num_slots
+        # n_s = num_slots if num_slots is not None else self.num_slots
         
-        mu = self.slots_mu.expand(b, n_s, -1)
-        sigma = self.slots_sigma.expand(b, n_s, -1)
-        slots = torch.normal(mu, sigma)
+        # mu = self.slots_mu.expand(b, n_s, -1)
+        # sigma = F.softplus(self.slots_sigma).expand(b, n_s, -1)
+        # # sigma = self.slots_sigma.expand(b, n_s, -1)
+        # slots = torch.normal(mu, sigma)
 
-        inputs = self.norm_input(inputs)
-        k, v = self.to_k(inputs), self.to_v(inputs)
+        # inputs = self.norm_input(inputs)
+        # k, v = self.to_k(inputs), self.to_v(inputs)
+        k, v = inputs, inputs
+
 
         for _ in range(self.iters):
-            slots_prev = slots
+            # slots_prev = slots
+            # print(i,slots[0][0])
+            q = slots
 
-            slots = self.norm_slots(slots)
-            q = self.to_q(slots)
+            # slots = self.norm_slots(slots)
+            # q = self.to_q(slots)
+            # print(i,slots[0][0])
 
             dots = torch.einsum('bid,bjd->bij', q, k) * self.scale
             attn = dots.softmax(dim=1) + self.eps
             attn = attn / attn.sum(dim=-1, keepdim=True)
 
-            updates = torch.einsum('bjd,bij->bid', v, attn)
+            slots = torch.einsum('bjd,bij->bid', v, attn)
+            # updates = torch.einsum('bjd,bij->bid', v, attn)
 
-            slots = self.gru(
-                updates.reshape(-1, d),
-                slots_prev.reshape(-1, d)
-            )
+            # slots = self.gru(
+            #     updates.reshape(-1, d),
+            #     slots_prev.reshape(-1, d)
+            # )
 
-            slots = slots.reshape(b, -1, d)
-            slots = slots + self.fc2(F.relu(self.fc1(self.norm_pre_ff(slots))))
+            # slots = slots.reshape(b, -1, d)
+            # slots = slots + self.fc2(F.relu(self.fc1(self.norm_pre_ff(slots))))
 
         return slots
 
@@ -276,27 +283,27 @@ class SlotAttentionAutoEncoder(nn.Module):
         
         self.slot_broadcast = Gs_Slot_Broadcast(num_slots, hid_dim, 8)
 
-    def forward(self, gs, img):
+    def forward(self, gs, slots, img):
         # `image` has shape: [batch_size, num_channels, width, height].
 
         # Convolutional encoder with position embedding.
-        # x = self.encoder_cnn_gs(gs)  # CNN Backbone.
-        # x = nn.LayerNorm(x.shape[1:]).to(img.device)(x)
-        # x = self.fc1(x)
-        # x = F.relu(x)
-        # x = self.fc2(x)  # Feedforward network on set.
+        x = self.encoder_cnn_gs(gs)  # CNN Backbone.
+        x = nn.LayerNorm(x.shape[1:]).to(img.device)(x)
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)  # Feedforward network on set.
         # `x` has shape: [batch_size, num_gaussians, input_size].
 
         # Inject encoded 4DGS.
-        x = gs
+        # x = gs
         # `x` has shape: [batch_size, num_gaussians, slot_size].
 
         # Slot Attention module.
-        slots = self.slot_attention(x)
+        # slots = self.slot_attention(x, slots)
         # `slots` has shape: [batch_size, num_slots, slot_size].
 
         """Broadcast slot features to a 2D grid and collapse slot dimension."""
-        slots = self.slot_broadcast(slots)
+        # slots = self.slot_broadcast(slots)
 
         # slots = slots.reshape((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
         # slots = slots.repeat((1, 8, 8, 1))

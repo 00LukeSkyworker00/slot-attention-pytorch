@@ -6,3 +6,5 @@ pandas
 matplotlib
 imageio
 roma
+# faiss-cpu
+# faiss-gpu

@@ -38,15 +38,15 @@ def Trainer(rank, world_size, opt):
     train_list = []
 
     for i in range(11, 51):
-        train_set = ShapeOfMotion(os.path.join(opt.data_dir,f'movi_a_00{i}_anoMask'))
+        train_set = ShapeOfMotion(os.path.join(opt.data_dir,f'movi_a_00{i}_anoMask'), opt.num_slots)
         train_list.append(train_set)
         # print(train_set[0]['fg_gs'].shape)
     
     train_set = ConcatDataset(train_list)
-    # train_set = ShapeOfMotion(opt.data_dir)
+    # train_set = ShapeOfMotion(os.path.join(opt.data_dir,f'movi_a_0004_anoMask'), opt.num_slots)
     print(f"Number of scene in concat dataset: {len(train_set)}")
 
-    model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, 26)
+    model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, 14)
     # model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim)
     # model.load_state_dict(torch.load('./tmp/model6.ckpt')['model_state_dict'])
     model = model.to(device)
@@ -109,9 +109,10 @@ def Trainer(rank, world_size, opt):
                 # Get inputs and lengths
                 gt_imgs = sample['gt_imgs'].to(device)
                 all_gs = sample['all_gs'].to(device)
+                all_kmeans = sample['all_kmeans'].to(device)
 
                 # Forward pass through model
-                recon_combined, recons, masks, slots = model(all_gs, gt_imgs)
+                recon_combined, recons, masks, slots = model(all_gs, all_kmeans, gt_imgs)
                 
                 # Loss calculation
                 loss = criterion(recon_combined, gt_imgs)
@@ -123,6 +124,10 @@ def Trainer(rank, world_size, opt):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                # for name, param in model.named_parameters():
+                #     if param.grad is not None:
+                #         print(f"{name} grad mean: {param.grad.mean()}, grad std: {param.grad.std()}")
+                # exit()
 
             total_loss /= len(train_dataloader)
 
@@ -132,10 +137,12 @@ def Trainer(rank, world_size, opt):
             if rank == 0:   # Print and save only from rank 0
                 print ("Epoch: {}, Loss: {}, Time: {}".format(epoch, total_loss,
                     datetime.timedelta(seconds=time.time() - start)))
+                # if epoch == 2:
+                #     exit()
                 
                 writer.add_scalar('Loss/train', total_loss, epoch)
 
-                if not epoch % 10:
+                if not epoch % 100:
                     os.makedirs(opt.output_dir, exist_ok=True)
 
                     torch.save({
