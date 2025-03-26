@@ -287,15 +287,15 @@ class SlotAttentionAutoEncoder(nn.Module):
         # `image` has shape: [batch_size, num_channels, width, height].
 
         # Convolutional encoder with position embedding.
-        x = self.encoder_cnn_gs(gs)  # CNN Backbone.
-        x = nn.LayerNorm(x.shape[1:]).to(img.device)(x)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)  # Feedforward network on set.
+        # x = self.encoder_cnn_gs(gs)  # CNN Backbone.
+        # x = nn.LayerNorm(x.shape[1:]).to(img.device)(x)
+        # x = self.fc1(x)
+        # x = F.relu(x)
+        # x = self.fc2(x)  # Feedforward network on set.
         # `x` has shape: [batch_size, num_gaussians, input_size].
 
         # Inject encoded 4DGS.
-        # x = gs
+        x = gs
         # `x` has shape: [batch_size, num_gaussians, slot_size].
 
         # Slot Attention module.

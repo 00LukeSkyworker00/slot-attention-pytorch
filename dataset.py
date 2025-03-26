@@ -201,10 +201,10 @@ class ShapeOfMotion(Dataset):
             "fg_gs": fg_gs,
             # (G, 14).
             "all_gs": all_gs,
-            # (Num_slots, 14).
-            "fg_kmeans": self.kmeans(fg_gs, self.num_slot),
-            # (Num_slots, 14).
-            "all_kmeans": self.kmeans(all_gs, self.num_slot),
+            # # (Num_slots, 14).
+            # "fg_kmeans": self.kmeans(fg_gs, self.num_slot),
+            # # (Num_slots, 14).
+            # "all_kmeans": self.kmeans(all_gs, self.num_slot),
         }
         return data
     
@@ -222,10 +222,10 @@ def collate_fn_padd(batch):
     """    
     gt_imgs = [torch.tensor(t['gt_imgs'], dtype=torch.float32) for t in batch]  # Keep gt_imgs as is (no padding)
     gt_imgs = torch.stack(gt_imgs)
-    fg_kmeans = [torch.tensor(t['fg_kmeans'], dtype=torch.float32) for t in batch]
-    fg_kmeans = torch.stack(fg_kmeans)
-    all_kmeans = [torch.tensor(t['all_kmeans'], dtype=torch.float32) for t in batch]
-    all_kmeans = torch.stack(all_kmeans)
+    # fg_kmeans = [torch.tensor(t['fg_kmeans'], dtype=torch.float32) for t in batch]
+    # fg_kmeans = torch.stack(fg_kmeans)
+    # all_kmeans = [torch.tensor(t['all_kmeans'], dtype=torch.float32) for t in batch]
+    # all_kmeans = torch.stack(all_kmeans)
     
     # Extract fg_gs, all_gs, and gt_imgs
     fg_gs = [torch.tensor(t['fg_gs'], dtype=torch.float32) for t in batch]
@@ -243,8 +243,8 @@ def collate_fn_padd(batch):
         "gt_imgs": gt_imgs,
         "fg_gs": batch_fg,
         "all_gs": batch_all,
-        "fg_kmeans": fg_kmeans,
-        "all_kmeans": all_kmeans,
+        # "fg_kmeans": fg_kmeans,
+        # "all_kmeans": all_kmeans,
     }
 
     return out
