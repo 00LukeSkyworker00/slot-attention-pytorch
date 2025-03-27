@@ -63,7 +63,7 @@ class ShapeOfMotion(Dataset):
         img = cast(torch.Tensor, self.imgs[index])
         return img
         
-    def get_fg_4dgs(self, ts: torch.Tensor) -> torch.Tensor:
+    def get_fg_4dgs(self, ts: torch.Tensor, is_norm=True) -> torch.Tensor:
         means, quats, scales, opacities, colors = self.load_3dgs('fg')
 
         if ts is not None:
@@ -87,12 +87,19 @@ class ShapeOfMotion(Dataset):
         else:
             means_ts = means
             quats_ts = quats      
-
-        return torch.cat([self.min_max_norm(t) for t in (means_ts, quats_ts, scales, opacities, colors)], dim=1)
+        if is_norm:
+            return torch.cat([self.min_max_norm(t) for t in (means_ts, quats_ts, scales, opacities, colors)], dim=1)
+        else:
+            return torch.cat((means_ts, quats_ts, scales, opacities, colors), dim=1)
     
     def get_all_4dgs(self, ts: torch.Tensor) -> torch.Tensor:
         bg_gs = torch.cat(self.load_3dgs_norm('bg'), dim=1)
         fg_gs = self.get_fg_4dgs(ts)
+        return torch.cat((bg_gs, fg_gs), dim=0)
+    
+    def get_all_4dgs_raw(self, ts: torch.Tensor) -> torch.Tensor:
+        bg_gs = torch.cat(self.load_3dgs('bg'), dim=1)
+        fg_gs = self.get_fg_4dgs(ts, is_norm=False)
         return torch.cat((bg_gs, fg_gs), dim=0)
     
     def get_fg_4dgs_tfm(self, ts: torch.Tensor) -> torch.Tensor:
@@ -143,7 +150,7 @@ class ShapeOfMotion(Dataset):
         opacities = self.ckpt["model"][f"{set}.params.opacities"][:, None]
         # print('opacities loaded', opacities.shape)
         colors = self.ckpt["model"][f"{set}.params.colors"]
-        colors = torch.nan_to_num(colors,nan=0.0, posinf=10, neginf=-1e1)
+        colors = torch.nan_to_num(colors, posinf=0, neginf=0)
         return means, quats, scales, opacities, colors
     
     def load_3dgs_norm(self, set='fg') -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -189,8 +196,8 @@ class ShapeOfMotion(Dataset):
     
     def __getitem__(self, index: int):
 
-        fg_gs = self.get_fg_4dgs(torch.tensor([index]))
-        all_gs = self.get_all_4dgs(torch.tensor([index]))
+        fg_gs = self.get_fg_4dgs(torch.tensor([index]), is_norm=False)
+        all_gs = self.get_all_4dgs_raw(torch.tensor([index]))
 
         data = {
             # ().
@@ -207,7 +214,19 @@ class ShapeOfMotion(Dataset):
             # "all_kmeans": self.kmeans(all_gs, self.num_slot),
         }
         return data
-    
+    def modify_ckpt(self, color):
+        new_ckpt = self.ckpt
+
+        bg_size = new_ckpt["model"]["bg.params.colors"].shape[0]
+        fg_size = new_ckpt["model"]["fg.params.colors"].shape[0]
+
+        # bg_col, fg_col = torch.split(color, [bg_size, fg_size], dim=0)
+        # new_ckpt["model"]["bg.params.colors"] = bg_col
+        new_ckpt["model"]["fg.params.colors"] = color
+
+        # print(fg_col[fg_col != 0])
+
+        return new_ckpt
 
 def collate_fn_padd(batch):
     """
@@ -248,3 +267,5 @@ def collate_fn_padd(batch):
     }
 
     return out
+
+
