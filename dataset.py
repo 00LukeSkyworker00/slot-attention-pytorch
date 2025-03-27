@@ -142,7 +142,7 @@ class ShapeOfMotion(Dataset):
         opacities = self.ckpt["model"][f"{set}.params.opacities"][:, None]
         # print('opacities loaded', opacities.shape)
         colors = self.ckpt["model"][f"{set}.params.colors"]
-        colors = torch.nan_to_num(colors,nan=0.0, posinf=10, neginf=-1e1)
+        colors = torch.nan_to_num(colors, posinf=5, neginf=-5)
         return means, quats, scales, opacities, colors
     
     def load_3dgs_norm(self, set='fg') -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:

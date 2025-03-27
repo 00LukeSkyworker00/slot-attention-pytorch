@@ -3,7 +3,7 @@
 # List of folders
 evalset=(
     # movi_a_0004_anoMask
-    movi_a_proportional_min_max
+    movi_a_test_0327
 )
 
 DATA_DIR=/home/skyworker/result/4DGS_SlotAttention/shape_of_motion

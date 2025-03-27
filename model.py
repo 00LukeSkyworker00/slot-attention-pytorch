@@ -44,15 +44,15 @@ class SlotAttention(nn.Module):
 
         for _ in range(self.iters):
             slots_prev = slots
-
             slots = self.norm_slots(slots)
+
             q = self.to_q(slots)
 
-            dots = torch.einsum('bid,bjd->bij', q, k) * self.scale
-            attn = dots.softmax(dim=1) + self.eps
-            attn = attn / attn.sum(dim=-1, keepdim=True)
+            dots = torch.einsum('bid,bjd->bij', k, q) * self.scale
+            attn = dots.softmax(dim=-1) + self.eps
 
-            updates = torch.einsum('bjd,bij->bid', v, attn)
+            attn = attn / attn.sum(dim=-2, keepdim=True)
+            updates = torch.einsum('bij,bid->bjd', attn, v)
 
             slots = self.gru(
                 updates.reshape(-1, d),
@@ -296,10 +296,10 @@ class SlotAttentionAutoEncoder(nn.Module):
         # `slots` has shape: [batch_size, num_slots, slot_size].
 
         """Broadcast slot features to a 2D grid and collapse slot dimension."""
-        slots = self.slot_broadcast(slots)
+        # slots = self.slot_broadcast(slots)
 
-        # slots = slots.reshape((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
-        # slots = slots.repeat((1, 8, 8, 1))
+        slots = slots.reshape((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
+        slots = slots.repeat((1, 8, 8, 1))
         # `slots` has shape: [batch_size*num_slots, width_init, height_init, slot_size].
 
 
