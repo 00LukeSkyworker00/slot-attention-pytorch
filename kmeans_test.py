@@ -17,7 +17,7 @@ def SlotAttention(gs: torch.Tensor, slots: torch.Tensor, iters=3):
 
         # Compute attention weights
         q = slots
-        q *= slots.size(0) ** -0.5  # Normalization.
+        q *= slots.size(1) ** -0.5  # Normalization.
         attn = k @ q.T # (G,N_S)
         attn = torch.softmax(attn, dim=-1)
 
@@ -70,7 +70,7 @@ def compute_attention(gs, slots):
     """
     # Compute attention weights
     q = slots
-    q *= slots.size(0) ** -0.5  # Normalization.
+    q *= slots.size(1) ** -0.5  # Normalization.
     attn = gs @ q.T # (G, N_S)
     attn = torch.softmax(attn, dim=-1)
 

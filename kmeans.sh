@@ -13,7 +13,7 @@ for seq in ${evalset[@]}; do
     --data_dir $DATA_DIR/$seq \
     --output_dir $OUT_DIR/${seq}_slotTest \
     --num_slots 8 \
-    --num_iterations 10000\
+    --num_iterations 100\
     --frame 2
 done
 
