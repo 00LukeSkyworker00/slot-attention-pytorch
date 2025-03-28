@@ -15,7 +15,7 @@ for seq in ${evalset[@]}; do
     --data_dir $DATA_DIR \
     --output_dir $OUT_DIR/$seq \
     --batch_size 12 \
-    --num_slots 10 \
+    --num_slots 8 \
     --num_iterations 3 \
     --num_workers 0 \
     --num_epochs 100

@@ -31,7 +31,7 @@ def SlotAttention(gs: torch.Tensor, slots: torch.Tensor, iters=3):
 
     return slots
 
-def kmeans(gs, k, iters=10):
+def kmeans(gs, k, iters=50):
     """
     gs: input tensor of shape 
     k: number of clusters (slots)
@@ -54,11 +54,11 @@ def kmeans(gs, k, iters=10):
             centroids[i] = gs[assignments == i].mean(dim=0)
 
         improvement = (last - centroids).sum()
+        print('kmeans improvements: ',improvement)
         if improvement == 0.:
             print("No significant improvement in kmeans!")
             break
-        else:
-            last = centroids.clone()
+        last = centroids.clone()
 
     print("end kmeans!")
     return torch.tensor(centroids)
@@ -151,13 +151,14 @@ def main():
     parser.add_argument('--num_slots', default=7, type=int, help='Number of slots in Slot Attention.')
     parser.add_argument('--num_iterations', default=3, type=int, help='Number of attention iterations.')
     parser.add_argument('--frame', default=10, type=int, help='which frame to inference.')
+    parser.add_argument('--seed', default=0, type=int, help='Set seed for reproducibility.')
 
     opt = parser.parse_args()
 
     print(opt.data_dir)
     print(opt.output_dir)
 
-    torch.manual_seed(0)
+    torch.manual_seed(opt.seed)
 
     # Load the dataset
     train_set = ShapeOfMotion(os.path.join(opt.data_dir), opt.num_slots)
@@ -178,7 +179,7 @@ def main():
   
     frame = train_set[opt.frame]
 
-    slots = kmeans(frame['fg_gs'], opt.num_slots, iters=50)
+    slots = kmeans(frame['fg_gs'], opt.num_slots, iters=100)
     # print(slots)
     # exit()
     slots = SlotAttention(frame['fg_gs'], slots, opt.num_iterations)

@@ -2,7 +2,7 @@
 
 # List of folders
 evalset=(
-    movi_a_0001_anoMask
+    movi_a_0050_anoMask
 )
 
 DATA_DIR=/home/skyworker/result/4DGS_SlotAttention/shape_of_motion
@@ -14,6 +14,7 @@ for seq in ${evalset[@]}; do
     --output_dir $OUT_DIR/${seq}_slotTest \
     --num_slots 8 \
     --num_iterations 100\
-    --frame 2
+    --frame 15\
+    --seed 0
 done
 
