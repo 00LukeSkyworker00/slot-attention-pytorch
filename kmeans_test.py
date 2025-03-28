@@ -5,6 +5,7 @@ from dataset import *
 from plyfile import PlyData, PlyElement
 import seaborn as sns
 import itertools
+from sklearn.cluster import KMeans
 
 def SlotAttention(gs: torch.Tensor, slots: torch.Tensor, iters=3):
     """
@@ -17,7 +18,7 @@ def SlotAttention(gs: torch.Tensor, slots: torch.Tensor, iters=3):
 
         # Compute attention weights
         q = slots
-        q *= slots.size(1) ** -0.5  # Normalization.
+        # q *= slots.size(1) ** -0.5  # Normalization.
         attn = k @ q.T # (G,N_S)
         attn = torch.softmax(attn, dim=-1)
 
@@ -48,7 +49,7 @@ def compute_attention(gs, slots):
 
     return attn # (G, N_S)
 
-def kmeans(gs, k, iters=50):
+def kmeans(gs, k, iters=50) -> tuple[torch.Tensor, torch.Tensor]:
     """
     gs: input tensor of shape 
     k: number of clusters (slots)
@@ -65,7 +66,7 @@ def kmeans(gs, k, iters=50):
         # Compute the distances from each point to each centroid
         distances = torch.cdist(gs, centroids)        
         # Assign each point to the nearest centroid (min distance)
-        assignments = torch.argmin(distances, dim=1)      
+        assignments = torch.argmin(distances, dim=1)
         # Update centroids by computing the mean of the assigned points
         for i in range(k):
             centroids[i] = gs[assignments == i].mean(dim=0)
@@ -78,7 +79,8 @@ def kmeans(gs, k, iters=50):
         last = centroids.clone()
 
     print("end kmeans!")
-    return torch.tensor(centroids)
+
+    return centroids, assignments
 
 def export_slots_ply(gs, slots):
     """
@@ -107,13 +109,15 @@ def export_slots_ply(gs, slots):
 def export_ply(gs, path):
         # mkdir_p(os.path.dirname(path))
 
-        xyz = gs['means'].detach().cpu().numpy()
-        normals = np.zeros_like(xyz)
-        opacities = gs['opacities'].detach().cpu().numpy()
-        scale = gs['scales'].detach().cpu().numpy()
-        rotation = gs['quats'].detach().cpu().numpy()
+        gs = gs.detach().cpu().numpy()
 
-        f_dc = gs['colors'].detach().cpu().numpy()
+        xyz = gs['means']
+        normals = np.zeros_like(xyz)
+        opacities = gs['opacities']
+        scale = gs['scales']
+        rotation = gs['quats']
+
+        f_dc = gs['colors']
         # f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
 
         dtype_full = [(attribute, 'f4') for attribute in construct_list_of_attributes(gs)]
@@ -162,45 +166,38 @@ def main():
 
     # Load the dataset
     train_set = ShapeOfMotion(os.path.join(opt.data_dir), opt.num_slots)
-
-    # Load the frame
-    # frame = train_set[opt.frame]
-
-    # test_gs = {
-    #     'means': frame['all_gs'][:, :3],
-    #     'quats': frame['all_gs'][:, 3:7],
-    #     'scales': frame['all_gs'][:, 7:10],
-    #     'opacities': frame['all_gs'][:, 10][:, None],
-    #     'colors': frame['all_gs'][:, 11:14]
-    # }
-    
-    # os.makedirs(opt.output_dir, exist_ok=True)
-    # export_ply(test_gs, os.path.join(opt.output_dir, 'test.ply'))
   
     frame = train_set[opt.frame]
-    inputs = frame['fg_gs']
+    # inputs = frame['fg_gs']
+    # inputs = frame['fg_gs'][:,:3] # only xyz
+    # inputs = frame['fg_gs'][:,:7] # only xyz, rots
+    # inputs = frame['fg_gs'][:,:10] # only xyz, rots, scale
+    # inputs = frame['fg_gs'][:,11:14] # only color
+    # inputs = frame['fg_gs'][:,10:14] # only color and opac
+    inputs = torch.cat((frame['fg_gs'][:,:3],frame['fg_gs'][:,11:14]), dim=1)
 
-    slots = kmeans(inputs, opt.num_slots, iters=100)
-    # print(slots)
-    # exit()
+    # kmeans = KMeans(n_clusters=opt.num_slots, random_state=opt.seed, n_init='auto')
+    # labels = kmeans.fit_predict(inputs.detach().cpu().numpy())
+    # slots = torch.tensor(kmeans.cluster_centers_,device=inputs.device)
+
+    slots, labels = kmeans(inputs, opt.num_slots, iters=200)
+
     slots = SlotAttention(inputs, slots, opt.num_iterations)
     # print(slots[0])
     attn = compute_attention(inputs, slots) # (G, N_S)
-    # print(torch.nonzero(attn[0] > 0, as_tuple=True))
-    # torch.set_printoptions(precision=8, sci_mode=False)
     
-    # colors = torch.tensor(sns.color_palette('husl', opt.num_slots), device=attn.device) # (N_S, 3)
+    # colors = torch.tensor(sns.color_palette('husl', opt.num_slots), device=inputs.device) # (N_S, 3)
     # colors = ((colors * 10.0) - 10.0)
     # colors = torch.ones((opt.num_slots, 3),device=attn.device) * -5
-    values = [5., -5.]
-    colors = torch.tensor(list(itertools.product(values, repeat=3)),device=attn.device)
-    # print(colors.shape)
-    # print(colors)
-    # exit()
-    frame_col = attn @ colors # (G, 3)
-    # print(len(frame_col[frame_col != 0]))
-    new_ckpt = train_set.modify_ckpt(frame_col)
 
+    values = [5., -5.]
+    colors = torch.tensor(list(itertools.product(values, repeat=3)),device=inputs.device)
+
+    frame_col = attn @ colors # (G, 3)
+    # frame_col = colors[labels] # (G, 3)
+    print(frame_col[0])
+
+    new_ckpt = train_set.modify_ckpt(frame_col)
     torch.save(new_ckpt, f"{opt.output_dir}/checkpoints/last.ckpt")
     print('Save Checkpoint!!')
 

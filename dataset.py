@@ -197,6 +197,9 @@ class ShapeOfMotion(Dataset):
     def __getitem__(self, index: int):
 
         fg_gs = self.get_fg_4dgs(torch.tensor([index]), is_norm=False)
+        # torch.set_printoptions(sci_mode=False)
+        # np.savetxt("tensor.csv", fg_gs.numpy(), delimiter=",", fmt="%.10f")
+        # exit()
         all_gs = self.get_all_4dgs_raw(torch.tensor([index]))
 
         data = {

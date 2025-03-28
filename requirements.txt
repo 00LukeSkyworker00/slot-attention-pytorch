@@ -10,3 +10,4 @@ roma
 # faiss-gpu
 plyfile
 seaborn
+scikit-learn
