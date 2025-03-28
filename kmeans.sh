@@ -12,8 +12,9 @@ for seq in ${evalset[@]}; do
     python kmeans_test.py \
     --data_dir $DATA_DIR/$seq \
     --output_dir $OUT_DIR/${seq}_slotTest \
-    --num_slots 8 \
+    --num_slots 8\
     --num_iterations 100\
-    --frame 2
+    --frame 2\
+    --seed 0
 done
 

@@ -5,7 +5,6 @@ from dataset import *
 from plyfile import PlyData, PlyElement
 import seaborn as sns
 import itertools
-from sklearn.cluster import KMeans
 
 def SlotAttention(gs: torch.Tensor, slots: torch.Tensor, iters=3):
     """
@@ -18,7 +17,7 @@ def SlotAttention(gs: torch.Tensor, slots: torch.Tensor, iters=3):
 
         # Compute attention weights
         q = slots
-        # q *= slots.size(1) ** -0.5  # Normalization.
+        q *= slots.size(1) ** -0.5  # Normalization.
         attn = k @ q.T # (G,N_S)
         attn = torch.softmax(attn, dim=-1)
 
@@ -168,13 +167,13 @@ def main():
     train_set = ShapeOfMotion(os.path.join(opt.data_dir), opt.num_slots)
   
     frame = train_set[opt.frame]
-    # inputs = frame['fg_gs']
+    inputs = frame['fg_gs']
     # inputs = frame['fg_gs'][:,:3] # only xyz
     # inputs = frame['fg_gs'][:,:7] # only xyz, rots
     # inputs = frame['fg_gs'][:,:10] # only xyz, rots, scale
     # inputs = frame['fg_gs'][:,11:14] # only color
     # inputs = frame['fg_gs'][:,10:14] # only color and opac
-    inputs = torch.cat((frame['fg_gs'][:,:3],frame['fg_gs'][:,11:14]), dim=1)
+    # inputs = torch.cat((frame['fg_gs'][:,:3],frame['fg_gs'][:,11:14]), dim=1)
 
     # kmeans = KMeans(n_clusters=opt.num_slots, random_state=opt.seed, n_init='auto')
     # labels = kmeans.fit_predict(inputs.detach().cpu().numpy())
@@ -194,11 +193,23 @@ def main():
     colors = torch.tensor(list(itertools.product(values, repeat=3)),device=inputs.device)
 
     frame_col = attn @ colors # (G, 3)
+    # print(attn.shape)
+    # print(colors.shape)
+    # colors = colors.unsqueeze(1)
+    # colors = attn.unsqueeze(-1).permute(1,0,2) * colors # (N_S, G, 3)
+    # exit()
     # frame_col = colors[labels] # (G, 3)
-    print(frame_col[0])
+    # print(frame_col[0])
 
-    new_ckpt = train_set.modify_ckpt(frame_col)
-    torch.save(new_ckpt, f"{opt.output_dir}/checkpoints/last.ckpt")
+    # colors = attn.permute(1,0).unsqueeze(-1) * 10 - 5
+    # colors = colors.expand(-1,-1,3) * -1
+    # for i in range(colors.size(0)):
+    #     new_ckpt = train_set.modify_ckpt(colors[i])
+    #     torch.save(new_ckpt, f"{opt.output_dir}/checkpoints/last_{i}.ckpt")
+
+    # new_ckpt = train_set.modify_ckpt(frame_col)
+    # torch.save(new_ckpt, f"{opt.output_dir}/checkpoints/last.ckpt")
+    
     print('Save Checkpoint!!')
 
 

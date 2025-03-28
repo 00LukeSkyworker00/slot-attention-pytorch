@@ -226,6 +226,8 @@ class ShapeOfMotion(Dataset):
         # bg_col, fg_col = torch.split(color, [bg_size, fg_size], dim=0)
         # new_ckpt["model"]["bg.params.colors"] = bg_col
         new_ckpt["model"]["fg.params.colors"] = color
+        new_ckpt["model"]["fg.params.opacities"] = -color[:,0]
+        new_ckpt["model"]["bg.params.opacities"] = torch.ones_like(new_ckpt["model"]["bg.params.opacities"]) * -10
 
         # print(fg_col[fg_col != 0])
 
