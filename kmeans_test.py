@@ -31,6 +31,23 @@ def SlotAttention(gs: torch.Tensor, slots: torch.Tensor, iters=3):
 
     return slots
 
+def compute_attention(gs, slots):
+    """
+    gs: (G, D) tensor of Gaussians
+    slots: (N_S, D) tensor of attended slots
+    """
+    # Compute attention weights
+    q = slots
+    q *= slots.size(1) ** -0.5  # Normalization.
+    attn = gs @ q.T # (G, N_S)
+    attn = torch.softmax(attn, dim=-1)
+
+    # Weighted means of values
+    # attn += 1e-8
+    # attn /= attn.sum(dim=-2, keepdim=True)
+
+    return attn # (G, N_S)
+
 def kmeans(gs, k, iters=50):
     """
     gs: input tensor of shape 
@@ -62,23 +79,6 @@ def kmeans(gs, k, iters=50):
 
     print("end kmeans!")
     return torch.tensor(centroids)
-
-def compute_attention(gs, slots):
-    """
-    gs: (G, D) tensor of Gaussians
-    slots: (N_S, D) tensor of attended slots
-    """
-    # Compute attention weights
-    q = slots
-    q *= slots.size(1) ** -0.5  # Normalization.
-    attn = gs @ q.T # (G, N_S)
-    attn = torch.softmax(attn, dim=-1)
-
-    # Weighted means of values
-    # attn += 1e-8
-    # attn /= attn.sum(dim=-2, keepdim=True)
-
-    return attn # (G, N_S)
 
 def export_slots_ply(gs, slots):
     """
@@ -178,13 +178,14 @@ def main():
     # export_ply(test_gs, os.path.join(opt.output_dir, 'test.ply'))
   
     frame = train_set[opt.frame]
+    inputs = frame['fg_gs']
 
-    slots = kmeans(frame['fg_gs'], opt.num_slots, iters=100)
+    slots = kmeans(inputs, opt.num_slots, iters=100)
     # print(slots)
     # exit()
-    slots = SlotAttention(frame['fg_gs'], slots, opt.num_iterations)
+    slots = SlotAttention(inputs, slots, opt.num_iterations)
     # print(slots[0])
-    attn = compute_attention(frame['fg_gs'], slots) # (G, N_S)
+    attn = compute_attention(inputs, slots) # (G, N_S)
     # print(torch.nonzero(attn[0] > 0, as_tuple=True))
     # torch.set_printoptions(precision=8, sci_mode=False)
     
