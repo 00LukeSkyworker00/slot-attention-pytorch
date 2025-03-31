@@ -13,32 +13,6 @@ from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.dataloader import default_collate
 
-
-
-# class PARTNET(Dataset):
-#     def __init__(self, split='train'):
-#         super(PARTNET, self).__init__()
-        
-#         assert split in ['train', 'val', 'test']
-#         self.split = split
-#         self.root_dir = your_path     
-#         self.files = os.listdir(self.root_dir)
-#         self.img_transform = transforms.Compose([
-#                transforms.ToTensor()])
-
-#     def __getitem__(self, index):
-#         path = self.files[index]
-#         image = Image.open(os.path.join(self.root_dir, path, "0.png")).convert("RGB")
-#         image = image.resize((128 , 128))
-#         image = self.img_transform(image)
-#         sample = {'image': image}
-
-#         return sample
-            
-    
-#     def __len__(self):
-#         return len(self.files)
-
 class ShapeOfMotion(Dataset):
     def __init__(self, data_dir, transform=None):        
         self.data_dir = data_dir
@@ -46,23 +20,54 @@ class ShapeOfMotion(Dataset):
         self.img_dir = f"{data_dir}/images/"
         self.img_ext = os.path.splitext(os.listdir(self.img_dir)[0])[1]
         self.frame_names = [os.path.splitext(p)[0] for p in sorted(os.listdir(self.img_dir))]
-        self.imgs: list[torch.Tensor | None] = [None for _ in self.frame_names]
+        self.imgs = [self.load_image(i) for i in len(self.frame_names)]
+        # self.imgs: list[torch.Tensor | None] = [None for _ in self.frame_names]
         self.transform = transform
 
-    @property
-    def num_frames(self) -> int:
-        return len(self.frame_names)
-
     def __len__(self):
-        return len(self.frame_names)
+        return 1
     
     def get_image(self, index) -> torch.Tensor:
         if self.imgs[index] is None:
             self.imgs[index] = self.load_image(index)
         img = cast(torch.Tensor, self.imgs[index])
         return img
-        
-    def get_fg_4dgs(self, ts: torch.Tensor) -> torch.Tensor:
+    
+    def get_fg_4dgs(self) -> torch.Tensor:
+        means, quats, scales, opacities, colors = self.load_3dgs('fg')
+
+        means_list = []
+        quats_list = []
+        for ts in len(self.frame_names):
+            transfms = self.get_transforms(ts)  # (G, B, 3, 4)
+            means_ts = torch.einsum(
+                "pnij,pj->pni",
+                transfms,
+                F.pad(means, (0, 1), value=1.0),
+            ) # (G, B, 3)
+            quats_ts = roma.quat_xyzw_to_wxyz(
+                (
+                    roma.quat_product(
+                        roma.rotmat_to_unitquat(transfms[..., :3, :3]),
+                        roma.quat_wxyz_to_xyzw(quats[:, None]),
+                    )
+                )
+            )
+            quats_ts = F.normalize(quats_ts, p=2, dim=-1) # (G, B, 4)
+            means_list.append(means_ts[:, 0])
+            quats_list.append(quats_ts[:, 0])
+
+        means = torch.cat([t for t in means_list], dim=1)
+        quats = torch.cat([t for t in quats_list], dim=1)
+
+        return torch.cat([self.min_max_norm(t) for t in (means, quats, opacities, colors)], dim=1)
+    
+    def get_all_4dgs(self):
+        bg_gs = torch.cat(self.load_3dgs_norm('bg'), dim=1)
+        fg_gs = self.get_fg_4dgs()
+        return torch.cat((bg_gs, fg_gs), dim=0)
+
+    def get_fg_3dgs(self, ts: torch.Tensor) -> torch.Tensor:
         means, quats, scales, opacities, colors = self.load_3dgs('fg')
 
         if ts is not None:
@@ -89,12 +94,12 @@ class ShapeOfMotion(Dataset):
 
         return torch.cat([self.min_max_norm(t) for t in (means_ts, quats_ts, scales, opacities, colors)], dim=1)
     
-    def get_all_4dgs(self, ts: torch.Tensor) -> torch.Tensor:
+    def get_all_3dgs(self, ts: torch.Tensor) -> torch.Tensor:
         bg_gs = torch.cat(self.load_3dgs_norm('bg'), dim=1)
-        fg_gs = self.get_fg_4dgs(ts)
+        fg_gs = self.get_fg_3dgs(ts)
         return torch.cat((bg_gs, fg_gs), dim=0)
     
-    def get_fg_4dgs_tfm(self, ts: torch.Tensor) -> torch.Tensor:
+    def get_fg_3dgs_tfm(self, ts: torch.Tensor) -> torch.Tensor:
         means, quats, scales, opacities, colors = self.load_3dgs('fg')
 
         if ts is not None:
@@ -102,25 +107,21 @@ class ShapeOfMotion(Dataset):
             transfms = transfms[:, 0]  # (G, 3, 4)
             transfms = transfms.reshape(transfms.size(0), -1)  # (G, 12)
         else:
-            transfms = np.eye(4)
-            transfms = transfms[:-1].flatten()  # (12,)
-            transfms = np.repeat(transfms[np.newaxis, :], means.size(0), axis=0)
+            transfms = self.get_zero_transform(means.size(0))
 
         transfms = torch.tensor(transfms, dtype=torch.float32).to(means.device)
 
         return torch.cat([self.min_max_norm(t) for t in (means, quats, scales, opacities, colors, transfms)], dim=1)
     
-    def get_all_4dgs_tfm(self, ts: torch.Tensor) -> torch.Tensor:
+    def get_all_3dgs_tfm(self, ts: torch.Tensor) -> torch.Tensor:
         bg_gs = torch.cat(self.load_3dgs_norm('bg'), dim=1)
 
-        transfms = np.eye(4)
-        transfms = transfms[:-1].flatten()  # (12,)
-        transfms = np.repeat(transfms[np.newaxis, :], bg_gs.size(0), axis=0)
+        transfms = self.get_zero_transform(bg_gs.size(0))
         transfms = torch.tensor(transfms, dtype=torch.float32).to(bg_gs.device)
 
         bg_gs = torch.cat([bg_gs, self.min_max_norm(transfms)], dim=1)
 
-        fg_gs = self.get_fg_4dgs_tfm(ts)
+        fg_gs = self.get_fg_3dgs_tfm(ts)
 
         return torch.cat((bg_gs, fg_gs), dim=0)
 
@@ -128,6 +129,12 @@ class ShapeOfMotion(Dataset):
         # coefs = self.fg.get_coefs()  # (G, K)
         transls, rots, coefs = self.load_motion_base()
         transfms = compute_transforms(transls, rots, ts, coefs)  # (G, B, 3, 4)
+        return transfms
+    
+    def get_zero_transform(self, size: int):
+        transfms = np.eye(4)
+        transfms = transfms[:-1].flatten()  # (12,)
+        transfms = np.repeat(transfms[np.newaxis, :], size, axis=0) # (G, B, 3, 4)
         return transfms
     
     def load_image(self, index) -> torch.Tensor:
@@ -150,6 +157,12 @@ class ShapeOfMotion(Dataset):
         for tensor in self.load_3dgs(set):
             norm_3dgs.append(self.min_max_norm(tensor))
         return tuple(norm_3dgs)
+    
+    def load_4dgs_norm(self, set='fg') -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        norm_4dgs = []
+        for tensor in self.load_3dgs(set):
+            norm_3dgs.append(self.min_max_norm(tensor))
+        return tuple(norm_3dgs)
 
     def load_motion_base(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         transls = self.ckpt["model"]["motion_bases.params.transls"]
@@ -167,11 +180,11 @@ class ShapeOfMotion(Dataset):
             # ().
             # "frame_names": self.frame_names[index],
             # (H, W, 3).
-            "gt_imgs": self.get_image(index),
+            "gt_imgs": self.imgs,
             # (G, 14).
-            "fg_gs": self.get_fg_4dgs_tfm(torch.tensor([index])),
+            "fg_gs": self.get_fg_4dgs(),
             # # (G, 14).
-            "all_gs": self.get_all_4dgs_tfm(torch.tensor([index]))
+            "all_gs": self.get_all_3dgs_tfm(torch.tensor([index]))
         }
 
         return data
