@@ -46,7 +46,7 @@ def Trainer(rank, world_size, opt):
     # train_set = ShapeOfMotion(opt.data_dir)
     print(f"Number of scene in concat dataset: {len(train_set)}")
 
-    model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, 26)
+    model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, 14)
     # model = SlotAttentionAutoEncoder(resolution, opt.num_slots, opt.num_iterations, opt.hid_dim)
     # model.load_state_dict(torch.load('./tmp/model6.ckpt')['model_state_dict'])
     model = model.to(device)

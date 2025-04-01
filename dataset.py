@@ -13,32 +13,6 @@ from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.dataloader import default_collate
 
-
-
-# class PARTNET(Dataset):
-#     def __init__(self, split='train'):
-#         super(PARTNET, self).__init__()
-        
-#         assert split in ['train', 'val', 'test']
-#         self.split = split
-#         self.root_dir = your_path     
-#         self.files = os.listdir(self.root_dir)
-#         self.img_transform = transforms.Compose([
-#                transforms.ToTensor()])
-
-#     def __getitem__(self, index):
-#         path = self.files[index]
-#         image = Image.open(os.path.join(self.root_dir, path, "0.png")).convert("RGB")
-#         image = image.resize((128 , 128))
-#         image = self.img_transform(image)
-#         sample = {'image': image}
-
-#         return sample
-            
-    
-#     def __len__(self):
-#         return len(self.files)
-
 class ShapeOfMotion(Dataset):
     def __init__(self, data_dir, transform=None):        
         self.data_dir = data_dir
@@ -62,7 +36,7 @@ class ShapeOfMotion(Dataset):
         img = cast(torch.Tensor, self.imgs[index])
         return img
         
-    def get_fg_4dgs(self, ts: torch.Tensor) -> torch.Tensor:
+    def get_fg_3dgs(self, ts: torch.Tensor) -> torch.Tensor:
         means, quats, scales, opacities, colors = self.load_3dgs('fg')
 
         if ts is not None:
@@ -87,14 +61,19 @@ class ShapeOfMotion(Dataset):
             means_ts = means
             quats_ts = quats      
 
-        return torch.cat([self.min_max_norm(t) for t in (means_ts, quats_ts, scales, opacities, colors)], dim=1)
+        # return torch.cat([t for t in (means_ts, quats_ts, colors)], dim=1) # truncated without norm
+        return torch.cat([t for t in (means_ts, quats_ts, scales, opacities, colors)], dim=1) # full without norm
+        return torch.cat([self.min_max_norm(t) for t in (means_ts, quats_ts, colors)], dim=1) # truncated
+        return torch.cat([self.min_max_norm(t) for t in (means_ts, quats_ts, scales, opacities, colors)], dim=1) # full
     
-    def get_all_4dgs(self, ts: torch.Tensor) -> torch.Tensor:
-        bg_gs = torch.cat(self.load_3dgs_norm('bg'), dim=1)
-        fg_gs = self.get_fg_4dgs(ts)
+    def get_all_3dgs(self, ts: torch.Tensor) -> torch.Tensor:
+        bg_gs = self.load_3dgs('bg')
+        # bg_gs = torch.cat((bg_gs[0], bg_gs[1], bg_gs[4]), dim=1)
+        bg_gs = torch.cat(bg_gs, dim=1)
+        fg_gs = self.get_fg_3dgs(ts)
         return torch.cat((bg_gs, fg_gs), dim=0)
     
-    def get_fg_4dgs_tfm(self, ts: torch.Tensor) -> torch.Tensor:
+    def get_fg_3dgs_tfm(self, ts: torch.Tensor) -> torch.Tensor:
         means, quats, scales, opacities, colors = self.load_3dgs('fg')
 
         if ts is not None:
@@ -102,25 +81,21 @@ class ShapeOfMotion(Dataset):
             transfms = transfms[:, 0]  # (G, 3, 4)
             transfms = transfms.reshape(transfms.size(0), -1)  # (G, 12)
         else:
-            transfms = np.eye(4)
-            transfms = transfms[:-1].flatten()  # (12,)
-            transfms = np.repeat(transfms[np.newaxis, :], means.size(0), axis=0)
+            transfms = self.get_zero_transform(means.size(0))
 
         transfms = torch.tensor(transfms, dtype=torch.float32).to(means.device)
 
         return torch.cat([self.min_max_norm(t) for t in (means, quats, scales, opacities, colors, transfms)], dim=1)
     
-    def get_all_4dgs_tfm(self, ts: torch.Tensor) -> torch.Tensor:
+    def get_all_3dgs_tfm(self, ts: torch.Tensor) -> torch.Tensor:
         bg_gs = torch.cat(self.load_3dgs_norm('bg'), dim=1)
 
-        transfms = np.eye(4)
-        transfms = transfms[:-1].flatten()  # (12,)
-        transfms = np.repeat(transfms[np.newaxis, :], bg_gs.size(0), axis=0)
+        transfms = self.get_zero_transform(bg_gs.size(0))
         transfms = torch.tensor(transfms, dtype=torch.float32).to(bg_gs.device)
 
         bg_gs = torch.cat([bg_gs, self.min_max_norm(transfms)], dim=1)
 
-        fg_gs = self.get_fg_4dgs_tfm(ts)
+        fg_gs = self.get_fg_3dgs_tfm(ts)
 
         return torch.cat((bg_gs, fg_gs), dim=0)
 
@@ -128,6 +103,12 @@ class ShapeOfMotion(Dataset):
         # coefs = self.fg.get_coefs()  # (G, K)
         transls, rots, coefs = self.load_motion_base()
         transfms = compute_transforms(transls, rots, ts, coefs)  # (G, B, 3, 4)
+        return transfms
+    
+    def get_zero_transform(self, size: int):
+        transfms = np.eye(4)
+        transfms = transfms[:-1].flatten()  # (12,)
+        transfms = np.repeat(transfms[np.newaxis, :], size, axis=0) # (G, B, 3, 4)
         return transfms
     
     def load_image(self, index) -> torch.Tensor:
@@ -169,11 +150,10 @@ class ShapeOfMotion(Dataset):
             # (H, W, 3).
             "gt_imgs": self.get_image(index),
             # (G, 14).
-            "fg_gs": self.get_fg_4dgs_tfm(torch.tensor([index])),
+            # "fg_gs": self.get_fg_3dgs(torch.tensor([index])),
             # # (G, 14).
-            "all_gs": self.get_all_4dgs_tfm(torch.tensor([index]))
+            "all_gs": self.get_all_3dgs(torch.tensor([index]))
         }
-
         return data
     
 
@@ -190,13 +170,13 @@ def collate_fn_padd(batch):
     """
     
     # Extract fg_gs, all_gs, and gt_imgs
-    fg_gs = [torch.tensor(t['fg_gs'], dtype=torch.float32) for t in batch]
+    # fg_gs = [torch.tensor(t['fg_gs'], dtype=torch.float32) for t in batch]
     all_gs = [torch.tensor(t['all_gs'], dtype=torch.float32) for t in batch]
     gt_imgs = [torch.tensor(t['gt_imgs'], dtype=torch.float32) for t in batch]  # Keep gt_imgs as is (no padding)
     gt_imgs = torch.stack(gt_imgs)
 
     # Pad sequences along the first dimension (G)
-    batch_fg = torch.nn.utils.rnn.pad_sequence(fg_gs, batch_first=True, padding_value=0.0)
+    # batch_fg = torch.nn.utils.rnn.pad_sequence(fg_gs, batch_first=True, padding_value=0.0)
     batch_all = torch.nn.utils.rnn.pad_sequence(all_gs, batch_first=True, padding_value=0.0)
 
     # # # Compute mask (True for valid values, False for padding)
@@ -205,7 +185,7 @@ def collate_fn_padd(batch):
 
     out = {
         "gt_imgs": gt_imgs,
-        "fg_gs": batch_fg,
+        # "fg_gs": batch_fg,
         "all_gs": batch_all,
     }
 
