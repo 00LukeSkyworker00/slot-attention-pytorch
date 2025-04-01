@@ -63,7 +63,7 @@ class ShapeOfMotion(Dataset):
         return torch.cat([self.min_max_norm(t) for t in (means, quats, opacities, colors)], dim=1)
     
     def get_all_4dgs(self):
-        bg_gs = torch.cat(self.load_3dgs_norm('bg'), dim=1)
+        bg_gs = self.load_4dgs_bg()
         fg_gs = self.get_fg_4dgs()
         return torch.cat((bg_gs, fg_gs), dim=0)
 
@@ -158,11 +158,13 @@ class ShapeOfMotion(Dataset):
             norm_3dgs.append(self.min_max_norm(tensor))
         return tuple(norm_3dgs)
     
-    def load_4dgs_norm(self, set='fg') -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        norm_4dgs = []
-        for tensor in self.load_3dgs(set):
-            norm_3dgs.append(self.min_max_norm(tensor))
-        return tuple(norm_3dgs)
+    def load_4dgs_bg(self):
+        means, quats, scales, opacities, colors = self.load_3dgs('fg')
+        means_quats = torch.cat([self.min_max_norm(t) for t in (means, quats)], dim=1)
+        means_quats = means_quats.repeat(1,24)
+        opac_col = torch.cat([self.min_max_norm(t) for t in (opacities, colors)], dim=1)
+               
+        return torch.cat([means_quats, opac_col], dim=1)
 
     def load_motion_base(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         transls = self.ckpt["model"]["motion_bases.params.transls"]
@@ -184,7 +186,7 @@ class ShapeOfMotion(Dataset):
             # (G, 14).
             "fg_gs": self.get_fg_4dgs(),
             # # (G, 14).
-            "all_gs": self.get_all_3dgs_tfm(torch.tensor([index]))
+            "all_gs": self.get_all_4dgs()
         }
 
         return data
