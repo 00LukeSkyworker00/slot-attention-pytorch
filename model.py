@@ -39,20 +39,20 @@ class SlotAttention(nn.Module):
         sigma = self.slots_sigma.expand(b, n_s, -1)
         slots = torch.normal(mu, sigma)
 
-        inputs = self.norm_input(inputs)        
+        inputs = self.norm_input(inputs)
         k, v = self.to_k(inputs), self.to_v(inputs)
 
         for _ in range(self.iters):
             slots_prev = slots
-
             slots = self.norm_slots(slots)
+
             q = self.to_q(slots)
 
-            dots = torch.einsum('bid,bjd->bij', q, k) * self.scale
-            attn = dots.softmax(dim=1) + self.eps
-            attn = attn / attn.sum(dim=-1, keepdim=True)
+            dots = torch.einsum('bid,bjd->bij', k, q) * self.scale
+            attn = dots.softmax(dim=-1) + self.eps
 
-            updates = torch.einsum('bjd,bij->bid', v, attn)
+            attn = attn / attn.sum(dim=-2, keepdim=True)
+            updates = torch.einsum('bij,bid->bjd', attn, v)
 
             slots = self.gru(
                 updates.reshape(-1, d),
